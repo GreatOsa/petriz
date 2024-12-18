@@ -1,4 +1,4 @@
 **/__pycache__/
 /test_server.py
 /.env
-
+/venv/
