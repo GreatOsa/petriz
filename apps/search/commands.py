@@ -47,7 +47,7 @@ def load_terms_from_csv_and_save_to_db(
     last_committed_at = 0
 
     with open(path, "r", encoding="utf-8") as file:
-        reader = csv.DictReader(file)
+        reader = csv.DictReader(file, skipinitialspace=True)
         for row in reader:
             term = csv_row_to_term(
                 row,
@@ -76,12 +76,17 @@ def load_terms_to_db(
     :param csv_file: Path to the CSV file containing the terms
     :param data_source: The name of the source of the data
     """
-    db_session = next(get_session())
-    term_count = load_terms_from_csv_and_save_to_db(
-        db_session=db_session,
-        csv_file=csv_file,
-        batch_size=1000,
-        data_source=data_source,
-    )
+    with get_session() as db_session:
+        try:
+            term_count = load_terms_from_csv_and_save_to_db(
+                db_session=db_session,
+                csv_file=csv_file,
+                batch_size=1000,
+                data_source=data_source,
+            )
+        except Exception:
+            db_session.rollback()
+            raise
+
     sys.stdout.write(f"Loaded {term_count} terms to the database\n")
     return None

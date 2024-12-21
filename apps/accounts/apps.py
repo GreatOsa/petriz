@@ -2,6 +2,6 @@
 app_name = "apps.accounts"
 
 
-def ready():
+def configure():
     """App configuration logic to be run on application startup"""
     pass

@@ -7,8 +7,8 @@ from helpers.fastapi.utils import timezone
 from api.utils import generate_uid
 
 
-class IdentifierRelatedTOTP(TimeBasedOTP):
-    """Identifier related Time Based OTP model"""
+class ConnectionIdentifierRelatedTOTP(TimeBasedOTP):
+    """ConnectionIdentifier related Time Based OTP model"""
 
     __auto_tablename__ = True
 

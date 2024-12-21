@@ -37,7 +37,7 @@ def initialize_project():
         app.commands
 
     # Install routers
-    install_router(router, "base_router")
+    install_router(router, router_name="base_router")
 
 
 @asynccontextmanager
@@ -46,13 +46,17 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.sqlalchemy.setup import engine, bind_db_to_model_base
     from helpers.fastapi.sqlalchemy.models import ModelBase
     from helpers.fastapi.apps import configure_apps
+    from helpers.fastapi.requests import throttling
 
     try:
-        configure_apps()
+        await configure_apps()
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
         # Any setup code that needs to run before the application starts goes here
-
-        yield
+        async with throttling.configure(
+            persistent=app.debug is False, # Disables persistent rate limiting in debug mode
+            redis=settings.REDIS_LOCATION, 
+        ):
+            yield
     finally:
         pass
         # Perform additional cleanup here
@@ -69,7 +73,7 @@ def main(config: str = "APP") -> fastapi.FastAPI:
     initialize_project()
 
     # Ensure this environmental variables are set before anything is initialized
-    # Hence, why top-level imports are avoided    
+    # Hence, why top-level imports are avoided
     from helpers.fastapi.application import get_application
 
     app = get_application(**settings[config], lifespan=lifespan)

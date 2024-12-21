@@ -3,7 +3,7 @@ import fastapi
 
 from . import schemas
 from . import crud
-from helpers.fastapi.dependencies.requests import RequestDBSession
+from helpers.fastapi.dependencies.connections import DBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from api.dependencies.authorization import internal_api_clients_only
 from api.dependencies.authentication import authentication_required
@@ -21,7 +21,7 @@ router = fastapi.APIRouter(
 @router.post("")
 async def create_client(
     data: schemas.APIClientCreateSchema,
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
 ):
     can_create_client = await crud.check_account_can_create_more_clients(
@@ -47,7 +47,7 @@ async def create_client(
 
 @router.get("")
 async def retrieve_clients(
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     limit: typing.Annotated[int, fastapi.Query(le=100, ge=1)] = 100,
     offset: typing.Annotated[int, fastapi.Query(ge=0)] = 0,
@@ -63,7 +63,7 @@ async def retrieve_clients(
 
 @router.get("/{client_id}")
 async def retrieve_client(
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):
@@ -78,7 +78,7 @@ async def retrieve_client(
 @router.patch("/{client_id}")
 async def update_client(
     data: schemas.APIClientUpdateSchema,
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):
@@ -103,7 +103,7 @@ async def update_client(
 
 @router.delete("/{client_id}")
 async def delete_client(
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):
@@ -121,7 +121,7 @@ async def delete_client(
 @router.delete("/bulk-delete")
 async def bulk_delete_clients(
     data: schemas.APIClientBulkDeleteSchema,
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
 ):
     api_clients = await crud.retrieve_api_clients_by_uid(
@@ -142,7 +142,7 @@ async def bulk_delete_clients(
 
 @router.get("/{client_id}/api-key")
 async def retrieve_client_api_key(
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):
@@ -159,7 +159,7 @@ async def retrieve_client_api_key(
 @router.patch("/{client_id}/api-key")
 async def update_client_api_key(
     data: schemas.APIKeyUpdateSchema,
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):
@@ -183,7 +183,7 @@ async def update_client_api_key(
 
 @router.post("/{client_id}/api-key/refresh-secret")
 async def refresh_client_api_secret(
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     client_id: str = fastapi.Path(description="API client UID"),
 ):

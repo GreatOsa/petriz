@@ -17,7 +17,7 @@ class Term(mixins.TimestampMixin, models.Model):
 
     uid = sa.Column(sa.String(50), unique=True, index=True, default=generate_term_uid)
     name = sa.Column(sa.String(255), index=True, doc="The name of the term")
-    definition = sa.Column(sa.String(2000), doc="The definition of the term")
+    definition = sa.Column(sa.String(5000), doc="The definition of the term")
     topics = sa.Column(
         sa.ARRAY(sa.String(50), dimensions=1),
         nullable=True,

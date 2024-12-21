@@ -1,3 +1,4 @@
+import sys
 import typing
 import datetime
 from core import commands
@@ -18,15 +19,16 @@ async def create_internal_api_client(
     else:
         valid_until = None
 
-    session = next(get_async_session())
-    api_client = await crud.create_api_client(
-        session=session,
-        client_type=crud.APIClient.ClientType.INTERNAL,
-    )
-    await session.commit()
-    api_key = await crud.create_api_key(
-        session=session, client=api_client, valid_until=valid_until
-    )
-    await session.commit()
-    print(f"API Client ID: {api_client.uid}")
-    print(f"API Client Secret: {api_key.secret}")
+    async with get_async_session() as session:
+        api_client = await crud.create_api_client(
+            session=session,
+            client_type=crud.APIClient.ClientType.INTERNAL,
+        )
+        await session.commit()
+        api_key = await crud.create_api_key(
+            session=session, client=api_client, valid_until=valid_until
+        )
+        await session.commit()
+
+    sys.stdout.write(f"API Client ID: {api_client.uid}\n")
+    sys.stdout.write(f"API Client Secret: {api_key.secret}\n")

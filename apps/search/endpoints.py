@@ -3,7 +3,8 @@ import fastapi
 import typing
 from typing_extensions import Doc
 
-from helpers.fastapi.dependencies.requests import RequestDBSession, RequestUser
+from helpers.fastapi.requests.throttling import throttle
+from helpers.fastapi.dependencies.connections import DBSession, User
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
@@ -20,19 +21,24 @@ from . import schemas, crud
 router = fastapi.APIRouter(
     dependencies=[
         authorized_api_client_only,
+        throttle(limit=1000, hours=1),
+        throttle(limit=100, minutes=1),
+        throttle(limit=3, seconds=5),
     ]
 )
 
 
 @router.get(
     "",
-    dependencies=[authentication_required],
+    dependencies=[
+        authentication_required,
+    ],
     description="Search the glossary for petroleum related terms",
 )
 async def search_glossary_for_terms(
     request: fastapi.Request,
-    session: RequestDBSession,
-    request_user: RequestUser,
+    session: DBSession,
+    user: User,
     # Query parameters
     query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
     topics: typing.Annotated[
@@ -45,7 +51,7 @@ async def search_glossary_for_terms(
     limit: typing.Annotated[Limit, Le(50)] = 20,
     offset: Offset = 0,
 ):
-    account = request_user if request_user.is_authenticated else None
+    account = user if user.is_authenticated else None
     async with crud.record_search(
         session,
         query=query,
@@ -87,7 +93,7 @@ async def search_glossary_for_terms(
     description="Retrieve a glossary term by its UID",
 )
 async def retrieve_term_by_id(
-    session: RequestDBSession,
+    session: DBSession,
     term_id: str = fastapi.Path(description="Glossary term UID"),
 ):
     term = await crud.retrieve_term_by_uid(session, uid=term_id)
@@ -105,7 +111,7 @@ async def retrieve_term_by_id(
 )
 async def retrieve_account_search_history(
     request: fastapi.Request,
-    session: RequestDBSession,
+    session: DBSession,
     account: ActiveUser,
     # Query parameters
     query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
@@ -160,7 +166,7 @@ async def retrieve_account_search_history(
 )
 async def contribute_term_to_glossary(
     data: schemas.TermCreateSchema,
-    session: RequestDBSession,
+    session: DBSession,
 ):
     term = await crud.create_term(session, **data.model_dump(), verified=False)
     await session.commit()

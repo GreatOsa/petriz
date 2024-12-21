@@ -119,3 +119,5 @@ MAILING = {
 RESPONSE_FORMATTER = {
     "exclude": [r"^(?!/api).*$"]  # Exclude all routes that do not start with /api
 }
+
+REDIS_LOCATION = os.getenv("REDIS_LOCATION")
