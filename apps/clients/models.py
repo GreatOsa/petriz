@@ -1,10 +1,15 @@
+import typing
 import enum
+import uuid
+from annotated_types import MaxLen, LowerCase
 import sqlalchemy as sa
+from sqlalchemy import orm
 from sqlalchemy.orm import relationship
 
 from helpers.fastapi.sqlalchemy import models, mixins
 from helpers.fastapi.utils import timezone
 from api.utils import generate_uid
+from apps.accounts.models import Account
 
 
 def generate_api_client_uid() -> str:
@@ -25,26 +30,40 @@ class APIClient(
         PARTNER = "partner"
         USER = "user"
 
-    uid = sa.Column(
-        sa.String(50), index=True, unique=True, default=generate_api_client_uid
+    uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
+        sa.String(50),
+        index=True,
+        unique=True,
+        default=generate_api_client_uid,
     )
-    name = sa.Column(sa.Unicode(50))
-    description = sa.Column(sa.String(500), nullable=True)
-    account_id = sa.Column(
+    name: orm.Mapped[typing.Annotated[str, LowerCase, MaxLen(50)]] = orm.mapped_column(
+        sa.Unicode(50)
+    )
+    description: orm.Mapped[typing.Annotated[str, MaxLen(500)]] = sa.Column(
+        sa.String(500), nullable=True
+    )
+    account_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
         sa.UUID,
         sa.ForeignKey("accounts__client_accounts.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
     )
-    disabled = sa.Column(sa.Boolean, default=False, index=True, insert_default=True)
-    account = relationship("Account", back_populates="clients", uselist=False)
-    api_key = relationship(
-        "APIKey",
+    client_type: orm.Mapped[ClientType] = orm.mapped_column(
+        sa.Enum(ClientType, use_native=False), nullable=False
+    )
+    disabled: orm.Mapped[bool] = orm.mapped_column(
+        default=False, index=True, insert_default=False
+    )
+
+    ######### Relationships #############
+
+    account: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        back_populates="clients"
+    )
+    api_key: orm.Mapped["APIKey"] = relationship(
         back_populates="client",
-        uselist=False,
         cascade="all, delete-orphan",
     )
-    client_type = sa.Column(sa.Enum(ClientType, use_native=False), nullable=False)
 
     __table_args__ = (sa.UniqueConstraint("account_id", "name"),)
     # Client names should be unique for account
@@ -67,21 +86,33 @@ class APIKey(
 
     __auto_tablename__ = True
 
-    uid = sa.Column(
-        sa.String(50), index=True, unique=True, default=generate_api_key_uid
+    uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
+        sa.String(50),
+        index=True,
+        unique=True,
+        default=generate_api_key_uid,
     )
-    secret = sa.Column(
-        sa.String(100), nullable=False, index=True, default=generate_api_key_secret
+    secret: orm.Mapped[typing.Annotated[str, MaxLen(100)]] = orm.mapped_column(
+        sa.String(100),
+        nullable=False,
+        index=True,
+        default=generate_api_key_secret,
     )
-    client_id = sa.Column(
+    client_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
         sa.UUID,
         sa.ForeignKey("clients__api_clients.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+        unique=True,
     )
-    client = relationship("APIClient", back_populates="api_key", uselist=False)
     active = sa.Column(sa.Boolean, default=True, index=True, insert_default=True)
     valid_until = sa.Column(sa.DateTime(timezone=True), nullable=True, default=None)
+
+    ########## Relationships ############
+
+    client: orm.Mapped[APIClient] = relationship(
+        back_populates="api_key", single_parent=True
+    )
 
     __table_args__ = (sa.UniqueConstraint("client_id", "secret"),)
 

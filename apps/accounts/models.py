@@ -1,6 +1,9 @@
+from re import L
+import typing
+from annotated_types import MaxLen
 import sqlalchemy as sa
+from sqlalchemy import orm
 import sqlalchemy_utils as sa_utils
-from sqlalchemy.orm import relationship
 
 from helpers.fastapi.sqlalchemy import mixins
 from helpers.fastapi.models.users import AbstractUser
@@ -21,42 +24,56 @@ class Account(mixins.UUIDPrimaryKeyMixin, AbstractUser):
     # Just to override the default username field from AbstractUser
     username = None  # type: ignore
 
-    uid = sa.Column(
+    uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
         sa.String(50),
         index=True,
         unique=True,
         default=generate_account_uid,
         doc="Unique identifier for the account",
     )
-    name = sa.Column(sa.Unicode(50), doc="Account name")
-    email = sa.Column(
-        sa_utils.EmailType, index=True, unique=True, nullable=False, doc="Account email"
+    name: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
+        sa.Unicode(50),
+        doc="Account name",
+        nullable=False,
+        unique=True,
+    )
+    email: orm.Mapped[str] = orm.mapped_column(
+        sa_utils.EmailType,
+        index=True,
+        unique=True,
+        nullable=False,
+        doc="Account email",
     )
 
-    auth_token = relationship(
+    ######### Relationships #############
+
+    auth_token = orm.relationship(
         "AuthToken",
         back_populates="owner",
         uselist=False,
-        doc="Account authentication token",
+        doc="Account authentication token owned by the account",
         cascade="all, delete-orphan",
     )
-    totps = relationship(
+    totps = orm.relationship(
         "AccountRelatedTOTP",
         back_populates="owner",
-        doc="Time-based one-time passwords",
         cascade="all, delete-orphan",
         uselist=True,
+        doc="Time-based one-time passwords owned by the account",
     )
-    clients = relationship(
+    clients = orm.relationship(
         "APIClient",
         back_populates="account",
         cascade="all, delete-orphan",
         uselist=True,
+        doc="API clients associated with the account",
     )
-    search_history = relationship(
+    search_history = orm.relationship(
         "SearchRecord",
         back_populates="account",
         uselist=True,
+        cascade="all, delete-orphan",
+        doc="Search history of the account",
     )
 
     USERNAME_FIELD = "name"

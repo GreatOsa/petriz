@@ -19,7 +19,7 @@ class TermBaseSchema(pydantic.BaseModel):
     )
     definition: typing.Annotated[
         str,
-        MaxLen(2000),
+        MaxLen(5000),
         MinLen(1),
     ] = pydantic.Field(
         ...,
@@ -146,9 +146,93 @@ class SearchRecordSchema(pydantic.BaseModel):
         from_attributes = True
 
 
+class AccountSearchMetricsSchema(pydantic.BaseModel):
+    """Account search metrics schema. For serialization purposes only."""
+
+    account_id: pydantic.StrictStr
+    search_count: pydantic.PositiveInt = pydantic.Field(
+        default=0,
+        description="The total number of searches made by the account, over a period of time",
+    )
+    most_searched_queries: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched queries by the account to the number of times they were searched",
+        )
+    )
+    most_searched_topics: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched topics by the account to the number of account queries made on them",
+        )
+    )
+    most_searched_words: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched words by the account to the number of account queries made with them",
+        )
+    )
+    period_start: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        default=None, description="The start of the period the metrics were calculated for"
+    )
+    period_end: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        default=None, description="The end of the period the metrics were calculated for"
+    )
+
+
+
+class GlobalSearchMetricsSchema(pydantic.BaseModel):
+    """Global search metrics schema. For serialization purposes only."""
+
+    search_count: pydantic.PositiveInt = pydantic.Field(
+        default=0,
+        description="The total number of searches made by users, over a period of time",
+    )
+    verified_term_count: pydantic.PositiveInt = pydantic.Field(
+        default=0,
+        description="The total number of verified terms in the glossary",
+    )
+    unverified_term_count: pydantic.PositiveInt = pydantic.Field(
+        default=0,
+        description="The total number of unverified terms in the glossary",
+    )
+    sources: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = pydantic.Field(
+        default_factory=dict,
+        description="Mapping of the sources of terms in the glossary to the number of terms from each source",
+    )
+    most_searched_queries: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched queries by users to the number of times they were searched",
+        )
+    )
+    most_searched_topics: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched topics by users to the number of queries made on them",
+        )
+    )
+    most_searched_words: typing.Optional[typing.Dict[pydantic.StrictStr, int]] = (
+        pydantic.Field(
+            default_factory=dict,
+            description="Mapping of the most searched words by users to the number of queries made with them",
+        )
+    )
+    period_start: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        default=None,
+        description="The start of the period the metrics were calculated for",
+    )
+    period_end: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        default=None,
+        description="The end of the period the metrics were calculated for",
+    )
+
+
 __all__ = [
     "TermCreateSchema",
     "TermUpdateSchema",
     "TermSchema",
     "SearchRecordSchema",
+    "AccountSearchMetricsSchema",
+    "GlobalSearchMetricsSchema",
 ]

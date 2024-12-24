@@ -26,6 +26,7 @@ faker = "^33.1.0"
 rich = "^13.9.4"
 slb-glossary = "^0.0.1"
 redis = "^5.2.1"
+cachetools = "^5.5.0"
 
 
 [tool.poetry.group.dev.dependencies]

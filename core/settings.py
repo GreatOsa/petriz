@@ -56,7 +56,7 @@ SQLALCHEMY = {
     "async_engine": {
         "url": get_driver_postgres_url(db_driver="asyncpg"),
         "future": True,
-        "connect_args": {},
+        "connect_args": {}, 
     },
     "sessionmaker": {
         "sync": {"autocommit": False, "autoflush": False, "future": True},

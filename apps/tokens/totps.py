@@ -8,12 +8,12 @@ from helpers.fastapi.config import settings
 from helpers.generics.utils.totp import random_hex
 from helpers.fastapi.utils.requests import get_ip_address
 
-from .models import ConnectionIdentifierRelatedTOTP, AccountRelatedTOTP
+from .models import IdentifierRelatedTOTP, AccountRelatedTOTP
 
 
 async def get_totp_by_identifier(
     identifier: str, session: AsyncSession
-) -> Optional[ConnectionIdentifierRelatedTOTP]:
+) -> Optional[IdentifierRelatedTOTP]:
     """
     Get the latest Time-based OTP for the identifier.
 
@@ -21,8 +21,8 @@ async def get_totp_by_identifier(
     :param session: The database session to use.
     :return: The latest Time-based OTP for the identifier, if any.
     """
-    query = select(ConnectionIdentifierRelatedTOTP).where(
-        ConnectionIdentifierRelatedTOTP.identifier == identifier
+    query = select(IdentifierRelatedTOTP).where(
+        IdentifierRelatedTOTP.identifier == identifier
     )
     result = await session.execute(query)
     return result.scalars().first()
@@ -50,7 +50,7 @@ async def generate_totp_for_identifier(
     validity_period: int = settings.OTP_VALIDITY_PERIOD,
     request: Optional[fastapi.Request] = None,
     session: AsyncSession,
-) -> ConnectionIdentifierRelatedTOTP:
+) -> IdentifierRelatedTOTP:
     """
     Generate a Time-based OTP for the identifier.
 
@@ -66,7 +66,7 @@ async def generate_totp_for_identifier(
         if existing_totp:
             await session.delete(existing_totp)
 
-        new_totp = ConnectionIdentifierRelatedTOTP(
+        new_totp = IdentifierRelatedTOTP(
             identifier=identifier,
             length=length,
             validity_period=validity_period,

@@ -49,8 +49,8 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.requests import throttling
 
     try:
-        await configure_apps()
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
+        await configure_apps()
         # Any setup code that needs to run before the application starts goes here
         async with throttling.configure(
             persistent=app.debug is False, # Disables persistent rate limiting in debug mode

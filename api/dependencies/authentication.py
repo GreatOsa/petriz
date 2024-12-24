@@ -63,14 +63,47 @@ async def check_authentication_credentials(
 @Dependency
 # Override the regular `access_control` dependency factory, such that
 # the authentication credential check is only done on authorized clients
+# and the connection state is updated with the authenticated user if the credentials are valid
+# else the connection state is left as is and returned
+async def authenticate_connection(connection: AuthorizedAPIClient, session: DBSession):
+    """
+    Connection access control dependency.
+
+    Checks if the connection has valid authentication credentials.
+
+    Attaches the authenticated user to the connection state if the credentials are valid.
+    Connection state is left as is if the credentials are invalid.
+
+    :param connection: The HTTP connection.
+    :param session: The connection's database session.
+    :return: The updated connection if the credentials are valid.
+    """
+    _depends = access_control(
+        check_authentication_credentials,
+        raise_access_denied=False,
+    )
+    return await _depends.dependency(connection, session)
+    
+
+@Dependency
+# Override the regular `access_control` dependency factory, such that
+# the authentication credential check is only done on authorized clients
+# and the connection state is updated with the authenticated user if the credentials are valid
+# else an HTTP 401 Unauthorized error is raised
 async def authentication_required(
     connection: AuthorizedAPIClient, session: DBSession
 ):
     """
-    Request dependency.
+    Connection access control dependency.
 
     Checks if the connection has valid authentication credentials.
     Attaches the authenticated user to the connection state if the credentials are valid.
+    Raises an HTTP 401 Unauthorized error if the credentials are invalid.
+
+    :param connection: The HTTP connection.
+    :param session: The connection's database session.
+    :raises HTTPException: If the connection does not have valid authentication credentials.
+    :return: The updated connection if the credentials are valid.
     """
     _depends = access_control(
         check_authentication_credentials,
@@ -82,13 +115,39 @@ async def authentication_required(
 
 # Used Union[Any, HTTPConnection] to allow for the Annotated dependency type
 # to be used in place of the regular connection dependency, without fastapi complaining
+# about the type mismatch
+
+AuthenticateConnection = typing.Annotated[
+    typing.Union[typing.Any, HTTPConnection], authenticate_connection
+]
+"""
+Annotated dependency type that checks if the connection has valid authentication credentials.
+
+The authenticated user is attached to the connection state if the credentials are valid.
+Else, the connection state is left as is and returned.
+
+:raises HTTPException: If the connection does not have valid authentication credentials.
+:return: The updated connection if the credentials are valid.
+"""
+
+
 AuthenticationRequired = typing.Annotated[
     typing.Union[typing.Any, HTTPConnection], authentication_required
 ]
-"""Annotated dependency type that checks if the connection has valid authentication credentials."""
+"""
+Annotated dependency type that checks if the connection has valid authentication credentials.
+
+The authenticated user is attached to the connection state if the credentials are valid.
+Else, an HTTP 401 Unauthorized error is raised.
+
+:raises HTTPException: If the connection does not have valid authentication credentials.
+:return: The updated connection if the credentials are valid.
+"""
 
 
 __all__ = [
+    "authenticate_connection",
     "authentication_required",
+    "AuthenticateConnection",
     "AuthenticationRequired",
 ]

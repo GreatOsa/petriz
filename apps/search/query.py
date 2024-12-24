@@ -2,6 +2,7 @@ import typing
 import fastapi
 import pydantic
 import datetime
+from annotated_types import Interval
 
 from helpers.fastapi.utils import timezone
 
@@ -9,7 +10,17 @@ from helpers.fastapi.utils import timezone
 SearchQuery = typing.Annotated[
     typing.Optional[str], fastapi.Query(description="Search query", max_length=255)
 ]
-"""Annotated dependency for a search query parameter of not more than 255 characters"""
+"""Annotated type for a search query parameter of not more than 255 characters"""
+
+
+SourceName = typing.Annotated[
+    typing.Optional[str],
+    pydantic.StringConstraints(strip_whitespace=True, to_lower=True),
+    fastapi.Query(
+        description="Name of preferred source of query results", max_length=50
+    ),
+]
+"""Annotated type for a query result's source name of not more than 50 characters"""
 
 
 def parse_topics_query(
@@ -51,6 +62,16 @@ def parse_verified_query(
     return pydantic.TypeAdapter(bool).validate_python(verified, strict=False)
 
 
+IncludeRelated = typing.Annotated[
+    int,
+    Interval(ge=0, le=20),
+    fastapi.Query(description="How many related terms should be fetched/included ?"),
+]
+"""
+Annotated type  to parse the `include_related` query paramater value into a integer value,
+indicating how many related terms to be fetched/included
+"""
+
 Topics = typing.Annotated[
     typing.Optional[typing.List[str]], fastapi.Depends(parse_topics_query)
 ]
@@ -62,7 +83,7 @@ Startswith = typing.Annotated[
     typing.Optional[str], fastapi.Depends(parse_startswith_query)
 ]
 """
-Annotated dependency to parse startswith query parameter into list of strings
+Annotated dependency to parse `startswith` query parameter into list of strings
 """
 
 Verified = typing.Annotated[
@@ -70,7 +91,7 @@ Verified = typing.Annotated[
     fastapi.Depends(parse_verified_query),
 ]
 """
-Annotated dependency to parse verified query parameter into a boolean
+Annotated dependency to parse `verified` query parameter into a boolean
 """
 
 
@@ -109,13 +130,13 @@ TimestampGte = typing.Annotated[
     typing.Optional[datetime.datetime],
     fastapi.Depends(timestamp_query_parser("timestamp_gte")),
 ]
-"""Annotated dependency to parse timestamp_gte query parameter into a timezone-aware datetime"""
+"""Annotated dependency to parse `timestamp_gte` query parameter into a timezone-aware datetime"""
 
 TimestampLte = typing.Annotated[
     typing.Optional[datetime.datetime],
     fastapi.Depends(timestamp_query_parser("timestamp_lte")),
 ]
-"""Annotated dependency to parse timestamp_lte query parameter into a timezone-aware datetime"""
+"""Annotated dependency to parse `timestamp_lte` query parameter into a timezone-aware datetime"""
 
 
 __all__ = [

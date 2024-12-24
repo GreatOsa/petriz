@@ -6,19 +6,12 @@ from helpers.fastapi.mailing import send_mail
 from helpers.fastapi.dependencies.connections import DBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
-from api.dependencies.authorization import (
-    authorized_api_client_only,
-    internal_api_clients_only,
-)
+from api.dependencies.authorization import internal_api_clients_only
 from api.dependencies.authentication import authentication_required
 from apps.tokens import auth_tokens, totps
 
 
-router = fastapi.APIRouter(
-    dependencies=[
-        authorized_api_client_only,
-    ]
-)
+router = fastapi.APIRouter()
 
 
 ########################

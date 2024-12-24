@@ -38,7 +38,7 @@ async def check_client_credentials(connection: HTTPConnection, session: _DBSessi
 
     async with get_async_session() as session:
         api_client = await retrieve_api_client(session, uid=client_id)
-        if not (api_client or api_client.disabled):
+        if not api_client or api_client.disabled:
             return False
 
         api_secret_is_valid = (
@@ -60,20 +60,30 @@ authorized_api_client_only = access_control(
     "valid API secret and client ID in the connection headers.",
 )
 """
-Connection dependency. 
+Connection access control dependency. 
 
 Checks if the connection was made by an authorized/valid API client.
 Attaches the client object to the connection state if the client is authorized.
+
+:raises HTTPException: If the connection was not made by an authorized/valid API client.
+:return: The updated connection if the client is appropriately authorized.
 """
 
 # Used Union[Any, HTTPConnection] to allow for the Annotated dependency type
 # to be used in place of the regular connection dependency, without fastapi complaining
+# about the type mismatch
+
 AuthorizedAPIClient = typing.Annotated[
     typing.Union[typing.Any, HTTPConnection], authorized_api_client_only
 ]
 """
-Annotated dependency type that checks if the connection was 
+Annotated connection access control dependency type that checks if the connection was 
 made by an authorized/valid API client.
+
+Attaches the client object to the connection state if the client is authorized.
+
+:raises HTTPException: If the connection was not made by an authorized/valid API client.
+:return: The updated connection if the client is appropriately authorized.
 """
 
 
@@ -89,9 +99,14 @@ async def internal_api_clients_only(
     connection: AuthorizedAPIClient, session: DBSession
 ):
     """
-    Request dependency.
+    Connection access control dependency.
 
-    Checks if the connection was made by an authorized/valid INTERNAL API client.
+    Checks if the connection was made by an authorized/valid `INTERNAL` API client.
+
+    :param connection: The HTTP connection.
+    :param session: The database session.
+    :raises HTTPException: If the connection was not made by an authorized/valid `INTERNAL` API client.
+    :return: The updated connection if the client is appropriately authorized.
     """
     _depends = access_control(_is_internal_client)
     return await _depends.dependency(connection, session)
@@ -102,7 +117,11 @@ InternalAPIClient = typing.Annotated[
 ]
 """
 Annotated dependency type that checks if the connection was made 
-by an authorized/valid INTERNAL API client.
+by an authorized/valid `INTERNAL` API client.
+
+Attaches the `INTERNAL` type client object to the connection state if the client is authorized.
+
+:raises HTTPException: If the connection was not made by an authorized/valid `INTERNAL` API client.
 """
 
 

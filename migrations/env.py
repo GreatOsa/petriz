@@ -23,7 +23,7 @@ for app in discover_apps():
 config = context.config
 
 ini_section = config.config_ini_section
-# Set the DATABASE_URL variable in the alembic.ini file
+# Set the `sqlalchemy.url` variable in the alembic.ini file
 config.set_section_option(
     section=ini_section,
     name="sqlalchemy.url",
