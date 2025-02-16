@@ -1,10 +1,11 @@
-import string
-import random
-
-UNICODE_CHARS = string.ascii_letters + string.digits
+import ulid
 
 
-def generate_uid(length: int = 10, prefix: str = "petriz_") -> str:
-    """"""
-    return prefix + "".join(random.sample(UNICODE_CHARS, k=length))
+def generate_uid(prefix: str = "petriz_") -> str:
+    """
+    Generate a unique identifier using the ULID algorithm
 
+    :param prefix: The prefix to prepend to the generated ULID
+    :return: prefix + ulid
+    """
+    return prefix + ulid.ulid()

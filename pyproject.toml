@@ -27,6 +27,9 @@ rich = "^13.9.4"
 slb-glossary = "^0.0.1"
 redis = "^5.2.1"
 cachetools = "^5.5.0"
+uuid7 = "^0.1.0"
+ulid = "^1.1"
+hypercorn = "^0.17.3"
 
 
 [tool.poetry.group.dev.dependencies]

@@ -8,7 +8,10 @@ from helpers.fastapi.dependencies.connections import DBSession, User
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
-from api.dependencies.authentication import authentication_required, authenticate_connection
+from api.dependencies.authentication import (
+    authentication_required,
+    authenticate_connection,
+)
 from api.dependencies.authorization import internal_api_clients_only
 from helpers.fastapi.requests.query import Limit, Offset
 from .query import (
@@ -52,6 +55,9 @@ async def search_glossary_for_terms(
     offset: Offset = 0,
 ):
     account = user if user.is_authenticated else None
+    if topics:
+        topics = await crud.retrieve_topics_by_name(session, topics)
+
     async with crud.record_search(
         session,
         query=query,
@@ -91,24 +97,79 @@ async def search_glossary_for_terms(
 
 
 @router.get(
-    "/term/{term_id}",
+    "/terms/topics",
+    description="Retrieve a list of available topics",
+)
+async def retrieve_topics(
+    request: fastapi.Request,
+    session: DBSession,
+    limit: typing.Annotated[Limit, Le(50)] = 20,
+    offset: Offset = 0,
+):
+    topics = await crud.retrieve_topics(session, limit=limit, offset=offset)
+    response_data = [schemas.TopicSchema.model_validate(topic) for topic in topics]
+    return response.success(
+        data=paginated_data(
+            request,
+            data=response_data,
+            limit=limit,
+            offset=offset,
+        )
+    )
+
+
+@router.get(
+    "/terms/topics/{topic_id}",
+    description="Retrieve a list of available topics",
+)
+async def retrieve_topic_terms(
+    request: fastapi.Request,
+    session: DBSession,
+    topic_id: typing.Annotated[str, fastapi.Path(description="Topic UID")],
+    limit: typing.Annotated[Limit, Le(100)] = 20,
+    offset: Offset = 0,
+):
+    topic = await crud.retrieve_topic_by_uid(session, uid=topic_id)
+    if not topic:
+        return response.notfound("Topic matching the given query does not exist")
+
+    terms = await crud.retrieve_topic_terms(
+        session, topic=topic, limit=limit, offset=offset
+    )
+    response_data = [schemas.TermSchema.model_validate(term) for term in terms]
+    return response.success(
+        data=paginated_data(
+            request,
+            data=response_data,
+            limit=limit,
+            offset=offset,
+        )
+    )
+
+
+@router.get(
+    "/terms/{term_id}",
+    dependencies=[
+        authenticate_connection,
+    ],
     description="Retrieve a glossary term by its UID",
 )
 async def retrieve_term_by_id(
     session: DBSession,
+    user: User,
     term_id: typing.Annotated[str, fastapi.Path(description="Glossary term UID")],
     include_related: IncludeRelated = 0,
 ):
     term = await crud.retrieve_term_by_uid(session, uid=term_id)
     if not term:
-        response.notfound("Term matching the given query does not exist")
+        return response.notfound("Term matching the given query does not exist")
 
     response_data = {
         "term": schemas.TermSchema.model_validate(term),
         "related_terms": [],
     }
 
-    if include_related:
+    if include_related and term.topics:
         related_terms = await crud.search_terms(
             session,
             topics=term.topics,
@@ -122,11 +183,7 @@ async def retrieve_term_by_id(
             schemas.TermSchema.model_validate(term) for term in related_terms
         ]
 
-    if term.views:
-        term.views += 1
-    else:
-        term.views = 1
-    session.add(term)
+    await crud.create_term_view(session, term=term, viewed_by=user)
     await session.commit()
     return response.success(data=response_data)
 
@@ -160,6 +217,9 @@ async def retrieve_account_search_history(
     limit: typing.Annotated[Limit, Le(100)] = 50,
     offset: Offset = 0,
 ):
+    if topics:
+        topics = await crud.retrieve_topics_by_name(session, topics)
+
     search_history = await crud.retrieve_account_search_history(
         session,
         account=account,
@@ -251,9 +311,19 @@ async def contribute_term_to_glossary(
     data: schemas.TermCreateSchema,
     session: DBSession,
 ):
-    term = await crud.create_term(session, **data.model_dump(), verified=False)
+    dumped_data = data.model_dump()
+    topics: typing.Optional[typing.List[str]] = dumped_data.pop("topics", None)
+    if topics:
+        topics = await crud.retrieve_topics_by_name(session, topics)
+        if not topics:
+            return response.bad_request("Invalid topics provided")
+
+    term = await crud.create_term(session, **dumped_data, verified=False)
+    if topics:
+        term.topics |= topics
+
     await session.commit()
-    await session.refresh(term)
+    await session.refresh(term, attribute_names=["topics"])
     return response.created(
         f"{term.name} has been added to the glossary. Thanks for your contribution!",
         data=schemas.TermSchema.model_validate(term),

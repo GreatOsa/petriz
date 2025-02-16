@@ -5,6 +5,7 @@ import functools
 
 from helpers.generics.utils.db import get_database_url
 from helpers.fastapi import default_settings
+from helpers.fastapi.exceptions.capture import ExceptionCaptor
 
 load_dotenv(find_dotenv(".env", raise_error_if_not_found=True))
 
@@ -56,7 +57,7 @@ SQLALCHEMY = {
     "async_engine": {
         "url": get_driver_postgres_url(db_driver="asyncpg"),
         "future": True,
-        "connect_args": {}, 
+        "connect_args": {},
     },
     "sessionmaker": {
         "sync": {"autocommit": False, "autoflush": False, "future": True},
@@ -85,10 +86,15 @@ TIMEZONE = "UTC"
 
 AUTH_USER_MODEL = "accounts.Account"
 
-MIDDLEWARES = [
-    *default_settings.MIDDLEWARES,
+MIDDLEWARE = [
+    *default_settings.MIDDLEWARE,
     "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
 ]
+
+EXCEPTION_HANDLERS = {
+    **default_settings.EXCEPTION_HANDLERS,
+    ExceptionCaptor.ExceptionCaptured: "core.exception_handling.formatted_exception_captured_handler",
+}
 
 OTP_LENGTH = 6
 

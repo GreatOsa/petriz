@@ -37,12 +37,12 @@ class AccountRelatedTOTP(TimeBasedOTP):
 
 
 def generate_auth_token_secret() -> str:
-    return generate_uid(prefix="petriz_authtoken_", length=24)
+    return generate_uid(prefix="petriz_authtoken_")
 
 
 class AuthToken(
     mixins.TimestampMixin,
-    mixins.UUIDPrimaryKeyMixin,
+    mixins.UUID7PrimaryKeyMixin,
     models.Model,
 ):
     """Model representing a account authentication token."""
@@ -55,7 +55,9 @@ class AuthToken(
         nullable=False,
         index=True,
     )
-    owner: orm.Mapped[Account] = orm.relationship(back_populates="auth_token")
+    owner: orm.Mapped[Account] = orm.relationship(
+        back_populates="auth_token", single_parent=True
+    )
     secret: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
         sa.String(50),
         index=True,

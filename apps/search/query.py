@@ -7,18 +7,34 @@ from annotated_types import Interval
 from helpers.fastapi.utils import timezone
 
 
-SearchQuery = typing.Annotated[
-    typing.Optional[str], fastapi.Query(description="Search query", max_length=255)
-]
+def parse_query(
+    query: typing.Annotated[
+        typing.Optional[str], fastapi.Query(description="Search query", max_length=255)
+    ] = None,
+) -> typing.Optional[str]:
+    """Parse a search query parameter"""
+    return (query or "").strip() or None
+
+
+SearchQuery = typing.Annotated[typing.Optional[str], fastapi.Depends(parse_query)]
 """Annotated type for a search query parameter of not more than 255 characters"""
+
+
+def parse_source_name(
+    source: typing.Annotated[
+        typing.Optional[str],
+        fastapi.Query(
+            description="Name of preferred source of query results", max_length=50
+        ),
+    ] = None,
+) -> typing.Optional[str]:
+    return (source or "").strip() or None
 
 
 SourceName = typing.Annotated[
     typing.Optional[str],
-    pydantic.StringConstraints(strip_whitespace=True, to_lower=True),
-    fastapi.Query(
-        description="Name of preferred source of query results", max_length=50
-    ),
+    pydantic.StringConstraints(to_lower=True),
+    fastapi.Depends(parse_source_name),
 ]
 """Annotated type for a query result's source name of not more than 50 characters"""
 

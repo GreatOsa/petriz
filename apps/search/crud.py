@@ -1,31 +1,21 @@
 from contextlib import asynccontextmanager
-import select
 import typing
 import datetime
 import sqlalchemy as sa
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.accounts.models import Account
 from helpers.fastapi.utils import timezone
-from .models import (
-    Term,
-    generate_term_uid,
-    SearchRecord,
-    generate_search_record_uid,
-)
+from .models import Term, SearchRecord, Topic, TermView, SearchRecordToTopicAssociation
 from .schemas import AccountSearchMetricsSchema, GlobalSearchMetricsSchema
 
 
-def _clean_topics(topics: typing.Optional[typing.List[str]]) -> typing.List[str]:
-    """Clean up a list of topics by stripping and removing empty values."""
-    if not topics:
+def _clean_strings_list(strings: typing.Optional[typing.List[str]]) -> typing.List[str]:
+    """Clean up a list of strings by stripping and removing empty values."""
+    if not strings:
         return []
-    return [topic.strip().lower() for topic in topics if topic.strip()]
-
-
-def _clean_query(query: typing.Optional[str]) -> typing.Optional[str]:
-    """Clean up a query string by stripping and returning None if empty."""
-    return (query or "").strip() or None
+    return [s.strip().lower() for s in strings if s.strip()]
 
 
 async def create_term(session: AsyncSession, **create_params) -> Term:
@@ -36,13 +26,7 @@ async def create_term(session: AsyncSession, **create_params) -> Term:
     :param create_params: The parameters to create the term with
     :return: The created term
     """
-    while True:
-        uid = generate_term_uid()
-        exists = await session.execute(sa.select(sa.exists().where(Term.uid == uid)))
-        if not exists.scalar():
-            break
-
-    term = Term(uid=uid, **create_params)
+    term = Term(**create_params)
     session.add(term)
     return term
 
@@ -51,24 +35,115 @@ async def retrieve_term_by_uid(
     session: AsyncSession, uid: str
 ) -> typing.Optional[Term]:
     """Retrieve a term by its UID."""
-    result = await session.execute(sa.select(Term).where(Term.uid == uid))
+    result = await session.execute(
+        sa.select(Term).where(Term.uid == uid).options(selectinload(Term.topics))
+    )
     return result.scalar()
 
 
+async def retrieve_topics_by_name(
+    session: AsyncSession, topic_names: typing.Iterable[str]
+) -> typing.List[Topic]:
+    """
+    Retrieve topics by their names.
+
+    Does a case-insensitive search for topics with names that match the given names.
+    """
+    topic_names = _clean_strings_list(topic_names)
+    result = await session.execute(
+        sa.select(Topic).where(sa.func.lower(Topic.name).in_(topic_names))
+    )
+    return list(result.scalars().all())
+
+
+async def create_topic(
+    session: AsyncSession, name: str, description: typing.Optional[str] = None
+) -> Topic:
+    """
+    Create a topic in the glossary.
+
+    :param session: The database session
+    :param name: The name of the topic
+    :param description: A description of the topic
+    :return: The created topic
+    """
+    topic = Topic(name=name, description=description)
+    session.add(topic)
+    return topic
+
+
+async def retrieve_topics(
+    session: AsyncSession,
+    limit: int = 100,
+    offset: int = 0,
+) -> typing.List[Topic]:
+    """Retrieve all topics in the glossary."""
+    result = await session.execute(sa.select(Topic).limit(limit).offset(offset))
+    return list(result.scalars().all())
+
+
+async def retrieve_topic_by_uid(
+    session: AsyncSession, uid: str
+) -> typing.Optional[Topic]:
+    """Retrieve a topic by its UID."""
+    result = await session.execute(sa.select(Topic).where(Topic.uid == uid))
+    return result.scalar()
+
+
+async def create_term_view(
+    session: AsyncSession,
+    term: Term,
+    viewed_by: typing.Optional[Account],
+) -> TermView:
+    """
+    Create a term view record in the database.
+
+    :param term: The term that was viewed
+    :param viewed_by: The user/account that viewed the term
+    :param session: The database session
+    :return: The created term view record
+    """
+    term_view = TermView(
+        term_id=term.id, viewed_by_id=viewed_by.id if viewed_by else None
+    )
+    session.add(term_view)
+    return term_view
+
+
+async def retrieve_topic_terms(
+    session: AsyncSession,
+    topic: Topic,
+    limit: int = 100,
+    offset: int = 0,
+) -> typing.List[Term]:
+    """Retrieve terms that are tagged with the given topic."""
+    result = await session.execute(
+        sa.select(Term)
+        .where(Term.topics.any(Topic.id == topic.id))
+        .limit(limit)
+        .offset(offset)
+        .distinct(Term.name)
+        .options(selectinload(Term.topics))
+    )
+    return list(result.scalars().all())
+
+
 ###### SEARCH TERMS ######
+
+_UID = typing.Union[str, int]
 
 
 async def search_terms(
     session: AsyncSession,
     query: typing.Optional[str] = None,
     *,
-    topics: typing.Optional[typing.List[str]] = None,
+    topics: typing.Optional[typing.Iterable[Topic]] = None,
     startswith: typing.Optional[typing.List[str]] = None,
     source_name: typing.Optional[str] = None,
     verified: typing.Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
-    exclude: typing.Optional[typing.List[str]] = None,
+    exclude: typing.Optional[typing.List[_UID]] = None,
     ordering: typing.List[sa.UnaryExpression[Term]] = Term.DEFAULT_ORDERING,
 ) -> typing.List[Term]:
     """
@@ -85,9 +160,6 @@ async def search_terms(
     :param exclude: A list of term UIDs to exclude from the search results
     :param ordering: A list of SQLAlchemy ordering expressions to apply to the query
     """
-    query = _clean_query(query)
-    topics = _clean_topics(topics)
-
     if not query and not topics:
         return []
 
@@ -95,21 +167,17 @@ async def search_terms(
     """A list of SQLAlchemy filters to apply to the query"""
 
     if topics:
-        topic_subquery = (
-            sa.select(Term.id)
-            .select_from(sa.func.unnest(Term.topics).alias("topic"))
-            .where(sa.func.lower(sa.func.trim(sa.text("topic"))).in_(topics))
-            .distinct(Term.id)
-        )
-        query_filters.append(Term.id.in_(topic_subquery))
+        query_filters.append(Term.topics.any(Topic.id.in_([t.id for t in topics])))
 
     if query:
         query = rf"%{query}%"
         query_filters.append(
-            sa.or_(
-                Term.name.icontains(query),
-                Term.definition.icontains(query),
-            )
+            Term.name.icontains(query)
+            # More thorough but less performant
+            # sa.or_(
+            #     Term.name.icontains(query),
+            #     Term.definition.icontains(query),
+            # )
         )
     if source_name:
         query_filters.append(Term.source_name.icontains(source_name))
@@ -137,9 +205,10 @@ async def search_terms(
         .order_by(*ordering)
         .limit(limit)
         .offset(offset)
-        .distinct()
+        .distinct(Term.name)
+        .options(selectinload(Term.topics))
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 ###### SEARCH RECORDS ######
@@ -150,7 +219,7 @@ async def create_search_record(
     query: typing.Optional[str] = None,
     *,
     account: typing.Optional[Account] = None,
-    topics: typing.Optional[typing.List[str]] = None,
+    topics: typing.Optional[typing.Iterable[Topic]] = None,
     metadata: typing.Optional[typing.Dict[str, typing.Any]] = None,
 ) -> SearchRecord:
     """
@@ -163,23 +232,13 @@ async def create_search_record(
     :param metadata: Additional metadata to associate with the search
     :return: The created search record
     """
-    while True:
-        uid = generate_search_record_uid()
-        exists = await session.execute(
-            sa.select(sa.exists().where(SearchRecord.uid == uid))
-        )
-        if not exists.scalar():
-            break
-
-    query = _clean_query(query)
-    topics = _clean_topics(topics)
     search_record = SearchRecord(
-        uid=uid,
         account_id=account.id if account else None,
         query=query,
-        topics=topics,
         extradata=metadata or {},
     )
+    if topics:
+        search_record.topics |= set(topics)
     session.add(search_record)
     return search_record
 
@@ -190,7 +249,7 @@ async def record_search(
     query: typing.Optional[str] = None,
     *,
     account: typing.Optional[Account] = None,
-    topics: typing.Optional[typing.List[str]] = None,
+    topics: typing.Optional[typing.Iterable[Topic]] = None,
     metadata: typing.Optional[typing.Dict[str, typing.Any]] = None,
 ):
     """
@@ -202,9 +261,6 @@ async def record_search(
     :param topics: The topics the search was constrained to
     :param metadata: Additional metadata to associate with the search
     """
-    query = _clean_query(query)
-    topics = _clean_topics(topics)
-
     try:
         yield
         await create_search_record(
@@ -243,8 +299,7 @@ async def retrieve_account_search_history(
     :param offset: The number of search records to skip
     :return: A sequence of search records that match the given filters
     """
-    query = _clean_query(query)
-    topics = _clean_topics(topics)
+    topics = _clean_strings_list(topics)
 
     query_filters = [
         SearchRecord.account_id == account.id,
@@ -272,8 +327,9 @@ async def retrieve_account_search_history(
         .order_by(SearchRecord.timestamp.desc())
         .limit(limit)
         .offset(offset)
+        .options(selectinload(SearchRecord.topics))
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 ###### SEARCH METRICS ######
@@ -358,19 +414,23 @@ async def get_most_searched_topics(
     """
     most_searched_topics_query = (
         sa.select(
-            sa.func.lower(sa.func.trim(sa.func.unnest(SearchRecord.topics))).label(
-                "topic_lower"
-            ),
+            Topic.name,
             sa.func.count(SearchRecord.id).label("topic_count"),
         )
-        .where(
-            ~SearchRecord.topics.is_(sa.null()),
-            sa.func.cardinality(SearchRecord.topics) > 0,
-            *query_filters,
+        .join(
+            SearchRecordToTopicAssociation,
+            SearchRecordToTopicAssociation.topic_id == Topic.id,
+            isouter=True,
         )
+        .join(
+            SearchRecord,
+            SearchRecordToTopicAssociation.search_record_id == SearchRecord.id,
+            isouter=True,
+        )
+        .where(*query_filters)
+        .group_by(Topic.id)
         .order_by(sa.desc(sa.text("topic_count")))
         .limit(limit)
-        .group_by(sa.text("topic_lower"))
     )
     most_searched_topics = await session.execute(most_searched_topics_query)
     return dict(most_searched_topics.all())

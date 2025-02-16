@@ -2,15 +2,49 @@ import sys
 import typing
 import csv
 from pathlib import Path
-
 from sqlalchemy.orm import Session
 
 from helpers.fastapi.sqlalchemy.setup import get_session
-from .models import Term
+from .models import Term, Topic
 from core import commands
 
 
-def csv_row_to_term(
+def get_topic_by_name_or_create_topic(
+    db_session: Session,
+    name: str,
+    description: typing.Optional[str] = None,
+) -> Topic:
+    """
+    Get a topic by name or create a new topic if it does not exist
+
+    :param db_session: The database session to use
+    :param name: The name of the topic
+    :param description: The description of the topic
+    :return: The topic
+    """
+    name = name.strip()
+    topic = db_session.query(Topic).filter(Topic.name.ilike(name)).first()
+    if topic:
+        return topic
+
+    topic = Topic(name=name, description=description)
+    db_session.add(topic)
+    db_session.flush()
+    return topic
+
+
+def get_term_by_name(db_session: Session, name: str) -> typing.Optional[Term]:
+    """
+    Get a term by name
+
+    :param db_session: The database session to use
+    :param name: The name of the term
+    :return: The term
+    """
+    return db_session.query(Term).filter(Term.name.ilike(name.strip())).first()
+
+
+def row_to_term(
     row: typing.Dict,
     source_name: typing.Optional[str] = None,
     verified: bool = False,
@@ -20,7 +54,6 @@ def csv_row_to_term(
         name=row["Term"],
         definition=row["Definition"],
         grammatical_label=row.get("Grammatical Label", None),
-        topics=row.get("Topic", "").split(","),
         verified=verified,
         source_name=source_name,
         source_url=row.get("URL", None),
@@ -48,14 +81,37 @@ def load_terms_from_csv_and_save_to_db(
 
     with open(path, "r", encoding="utf-8") as file:
         reader = csv.DictReader(file, skipinitialspace=True)
+        topic_cache = {}
+        added_terms = set()
         for row in reader:
-            term = csv_row_to_term(
-                row,
-                source_name=data_source,
-                verified=True,
-            )
-            db_session.add(term)
-            term_count += 1
+            if not row["Term"] or row["Term"] in added_terms:
+                continue
+
+            term = get_term_by_name(db_session, row["Term"])
+            if not term:
+                term = row_to_term(
+                    row,
+                    source_name=data_source,
+                    verified=True,
+                )
+                db_session.add(term)
+                term_count += 1
+            added_terms.add(row["Term"])
+
+            with db_session.begin_nested():
+                for topic_name in row["Topic"].split(","):
+                    if not topic_name:
+                        continue
+
+                    if topic_name in topic_cache:
+                        topic = topic_cache[topic_name]
+                    else:
+                        topic = get_topic_by_name_or_create_topic(
+                            db_session,
+                            name=topic_name,
+                        )
+                    topic_cache[topic_name] = topic
+                    term.topics.add(topic)
 
             if (term_count - last_committed_at) >= batch_size:
                 db_session.commit()
@@ -66,7 +122,7 @@ def load_terms_from_csv_and_save_to_db(
 
 
 @commands.register
-def load_terms_to_db(
+def load_terms(
     csv_file: typing.Union[Path, str],
     data_source: typing.Optional[str] = None,
 ):
@@ -88,5 +144,5 @@ def load_terms_to_db(
             db_session.rollback()
             raise
 
-    sys.stdout.write(f"Loaded {term_count} terms to the database\n")
+    sys.stdout.write(f"Loaded {term_count} new terms to the database\n")
     return None

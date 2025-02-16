@@ -3,6 +3,60 @@ from annotated_types import MaxLen, MinLen
 import pydantic
 
 
+class TopicBaseSchema(pydantic.BaseModel):
+    """Topic base schema."""
+
+    name: typing.Annotated[
+        str,
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=1000,
+        ),
+    ] = pydantic.Field(
+        ...,
+        description="The name of the topic",
+    )
+    description: typing.Annotated[
+        typing.Optional[str],
+        MaxLen(5000),
+        MinLen(1),
+    ] = pydantic.Field(
+        ...,
+        description="What aspects does the topic cover?",
+    )
+
+    def __hash__(self):
+        return hash(self.name)
+
+
+class TopicCreateSchema(TopicBaseSchema):
+    """Topic creation schema."""
+
+    pass
+
+
+class TopicUpdateSchema(TopicBaseSchema):
+    """Topic update schema."""
+
+    pass
+
+
+class TopicSchema(TopicBaseSchema):
+    """Topic schema. For serialization purposes only."""
+
+    uid: pydantic.StrictStr
+    created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the topic was created/added"
+    )
+    updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the topic was last updated"
+    )
+
+    class Config:
+        from_attributes = True
+
+
 class TermBaseSchema(pydantic.BaseModel):
     """Term base schema."""
 
@@ -11,7 +65,7 @@ class TermBaseSchema(pydantic.BaseModel):
         pydantic.StringConstraints(
             strip_whitespace=True,
             min_length=1,
-            max_length=255,
+            max_length=500,
         ),
     ] = pydantic.Field(
         ...,
@@ -24,25 +78,6 @@ class TermBaseSchema(pydantic.BaseModel):
     ] = pydantic.Field(
         ...,
         description="The definition of the term",
-    )
-    topics: typing.Annotated[
-        typing.Optional[
-            typing.List[
-                typing.Annotated[
-                    str,
-                    pydantic.StringConstraints(
-                        to_lower=True,
-                        strip_whitespace=True,
-                        max_length=50,
-                        min_length=1,
-                    ),
-                ]
-            ]
-        ],
-        MaxLen(50),
-    ] = pydantic.Field(
-        default_factory=list,
-        description="The topics the term belongs to",
     )
     grammatical_label: typing.Annotated[
         typing.Optional[pydantic.StrictStr],
@@ -72,19 +107,33 @@ class TermBaseSchema(pydantic.BaseModel):
 class TermCreateSchema(TermBaseSchema):
     """Term creation schema."""
 
-    pass
+    topics: typing.Set[str] = pydantic.Field(
+        default_factory=set,
+        description="The topics the term belongs to",
+    )
 
 
 class TermUpdateSchema(TermBaseSchema):
     """Term update schema."""
 
-    pass
+    topics: typing.Set[str] = pydantic.Field(
+        default_factory=set,
+        description="The topics the term belongs to",
+    )
+    replace_topics: typing.Optional[bool] = pydantic.Field(
+        False,
+        description="Whether to replace the existing topics with the new ones. If False, the new topics will be added to the existing ones",
+    )
 
 
 class TermSchema(TermBaseSchema):
     """Term schema. For serialization purposes only."""
 
     uid: pydantic.StrictStr
+    topics: typing.Set[TopicSchema] = pydantic.Field(
+        default_factory=set,
+        description="The topics the term belongs to",
+    )
     verified: typing.Optional[pydantic.StrictBool] = pydantic.Field(
         False,
         description="Whether the term an its definition have been vetted and verified to be correct",
@@ -114,24 +163,9 @@ class SearchRecordSchema(pydantic.BaseModel):
         default=None,
         description="The search query made",
     )
-    topics: typing.Annotated[
-        typing.Optional[
-            typing.List[
-                typing.Annotated[
-                    str,
-                    pydantic.StringConstraints(
-                        to_lower=True,
-                        strip_whitespace=True,
-                        max_length=50,
-                        min_length=1,
-                    ),
-                ]
-            ]
-        ],
-        MaxLen(50),
-    ] = pydantic.Field(
-        default=None,
-        description="The topics the search was constrained to",
+    topics: typing.Set[TopicSchema] = pydantic.Field(
+        default_factory=set,
+        description="The topics the search query was made on",
     )
     extradata: typing.Optional[typing.Dict[str, pydantic.JsonValue]] = pydantic.Field(
         default=None,
@@ -173,12 +207,13 @@ class AccountSearchMetricsSchema(pydantic.BaseModel):
         )
     )
     period_start: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
-        default=None, description="The start of the period the metrics were calculated for"
+        default=None,
+        description="The start of the period the metrics were calculated for",
     )
     period_end: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
-        default=None, description="The end of the period the metrics were calculated for"
+        default=None,
+        description="The end of the period the metrics were calculated for",
     )
-
 
 
 class GlobalSearchMetricsSchema(pydantic.BaseModel):

@@ -4,7 +4,6 @@ import random
 import time
 from typing import Dict, Any
 import logging
-import rich
 from faker import Faker
 
 logging.basicConfig(level=logging.INFO)
@@ -16,7 +15,7 @@ SEARCH_URL = f"{BASE_URL}/search"
 HEADERS = {
     "x-client-id": "slb_client_T6WmX7iwEt9xyq4B",
     "x-client-secret": "slb_apisecret_H4kE2SIK5Jng8jxTaQqdZ6OB",
-    # "Authorization": "AuthToken petriz_authtoken_1XeLVSZqmIO3WFND6KY4vEkw",
+    "Authorization": "AuthToken petriz_authtoken_1XeLVSZqmIO3WFND6KY4vEkw",
 }
 
 fake = Faker()
@@ -110,10 +109,10 @@ async def run_search_test(total_searches: int = 10000):
             tasks.append(task)
 
             # Process in batches of 100 to avoid overwhelming memory
-            if len(tasks) >= 500:
+            if len(tasks) >= 100:
                 for completed_task in asyncio.as_completed(tasks):
                     try:
-                        rich.print(await completed_task)
+                        await completed_task
                         completed += 1
                     except Exception as e:
                         errors += 1
@@ -133,7 +132,7 @@ async def run_search_test(total_searches: int = 10000):
         if tasks:
             for completed_task in asyncio.as_completed(tasks):
                 try:
-                    rich.print(await completed_task)
+                    await completed_task
                     completed += 1
                 except Exception as e:
                     errors += 1

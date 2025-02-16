@@ -53,8 +53,9 @@ async def lifespan(app: fastapi.FastAPI):
         await configure_apps()
         # Any setup code that needs to run before the application starts goes here
         async with throttling.configure(
-            persistent=app.debug is False, # Disables persistent rate limiting in debug mode
-            redis=settings.REDIS_LOCATION, 
+            persistent=app.debug
+            is False,  # Disables persistent rate limiting in debug mode
+            redis=settings.REDIS_LOCATION,
         ):
             yield
     finally:

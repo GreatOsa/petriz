@@ -1,9 +1,10 @@
+import typing
 from sqlalchemy.ext.asyncio import AsyncSession
 import sqlalchemy as sa
 from sqlalchemy.orm import joinedload
 
 from apps.accounts.models import Account
-from .models import AuthToken, generate_auth_token_secret
+from .models import AuthToken
 
 
 async def check_auth_token_for_account_exists(
@@ -18,15 +19,7 @@ async def check_auth_token_for_account_exists(
 
 async def create_auth_token(session: AsyncSession, account: Account) -> AuthToken:
     """Create a new auth token for an account."""
-    while True:
-        secret = generate_auth_token_secret()
-        exists = await session.execute(
-            sa.select(sa.exists().where(AuthToken.secret == secret))
-        )
-        if not exists.scalar():
-            break
-
-    auth_token = AuthToken(secret=secret, account_id=account.id)
+    auth_token = AuthToken(account_id=account.id)
     session.add(auth_token)
     return auth_token
 
@@ -47,7 +40,7 @@ async def get_or_create_auth_token(session: AsyncSession, account: Account):
 
 async def get_auth_token_by_secret(
     session: AsyncSession, secret: str
-) -> AuthToken:
+) -> typing.Optional[AuthToken]:
     """Get an auth token by its secret."""
     result = await session.execute(
         sa.select(AuthToken)

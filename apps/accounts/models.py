@@ -1,4 +1,3 @@
-from re import L
 import typing
 from annotated_types import MaxLen
 import sqlalchemy as sa
@@ -13,10 +12,10 @@ from api.utils import generate_uid
 
 def generate_account_uid() -> str:
     """Generates a unique account UID"""
-    return generate_uid(prefix="petriz_account_", length=16)
+    return generate_uid(prefix="petriz_account_")
 
 
-class Account(mixins.UUIDPrimaryKeyMixin, AbstractUser):
+class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser):
     """Model representing a user account."""
 
     __tablename__ = "accounts__client_accounts"
@@ -72,7 +71,6 @@ class Account(mixins.UUIDPrimaryKeyMixin, AbstractUser):
         "SearchRecord",
         back_populates="account",
         uselist=True,
-        cascade="all, delete-orphan",
         doc="Search history of the account",
     )
 

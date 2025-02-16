@@ -9,9 +9,7 @@ from sqlalchemy.orm import joinedload
 from .models import (
     APIClient,
     APIKey,
-    generate_api_client_uid,
     generate_api_key_secret,
-    generate_api_key_uid,
 )
 from apps.accounts.models import Account
 
@@ -57,6 +55,7 @@ async def create_api_client(
     name: typing.Optional[str] = None,
     **kwargs,
 ):
+    name = name or generate_api_client_name()
     if name and account_id:
         if await check_api_client_name_exists_for_account(session, account_id, name):
             raise fastapi.exceptions.ValidationException(
@@ -65,27 +64,10 @@ async def create_api_client(
                 ]
             )
 
-    while True:
-        uid = generate_api_client_uid()
-        if not name:
-            name = generate_api_client_name()
-
-        query_clause = sa.or_(APIClient.uid == uid, APIClient.name == name)
-        if account_id:
-            query_clause = sa.or_(
-                APIClient.uid == uid,
-                sa.and_(APIClient.name == name, APIClient.account_id == account_id),
-            )
-
-        exists = await session.execute(sa.select(sa.exists().where(query_clause)))
-        if not exists.scalar():
-            break
-
     if account_id:
         kwargs["client_type"] = APIClient.ClientType.USER
 
     api_client = APIClient(
-        uid=uid,
         name=name,
         account_id=account_id,
         **kwargs,
@@ -135,7 +117,9 @@ async def retrieve_api_clients_by_uid(
     return result.scalars().all()
 
 
-async def delete_api_clients_by_uid(session: AsyncSession, uids: typing.List[str], **filters):
+async def delete_api_clients_by_uid(
+    session: AsyncSession, uids: typing.List[str], **filters
+):
     result = await session.execute(
         sa.delete(APIClient).where(APIClient.id.in_(uids)).filter_by(**filters)
     )
@@ -163,20 +147,7 @@ async def create_api_key(
     valid_until: typing.Optional[datetime.datetime] = None,
 ) -> APIKey:
     """Create a new api key for the API client."""
-    while True:
-        uid = generate_api_key_uid()
-        secret = generate_api_key_secret()
-        exists = await session.execute(
-            sa.select(
-                sa.exists().where(sa.or_(APIKey.uid == uid, APIKey.secret == secret))
-            )
-        )
-        if not exists.scalar():
-            break
-
     api_key = APIKey(
-        uid=uid,
-        secret=secret,
         client_id=client.id,
         valid_until=valid_until,
     )

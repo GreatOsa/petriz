@@ -2,7 +2,7 @@ import typing
 from sqlalchemy.ext.asyncio import AsyncSession
 import sqlalchemy as sa
 
-from .models import Account, generate_account_uid
+from .models import Account
 
 
 async def check_account_exists(session: AsyncSession, email: str) -> bool:
@@ -13,13 +13,7 @@ async def check_account_exists(session: AsyncSession, email: str) -> bool:
 
 async def create_account(session: AsyncSession, email: str, password: str) -> Account:
     """Create a new account."""
-    while True:
-        uid = generate_account_uid()
-        exists = await session.execute(sa.select(sa.exists().where(Account.uid == uid)))
-        if not exists.scalar():
-            break
-
-    account = Account(uid=uid, email=email)
+    account = Account(email=email)
     account.set_password(password)
     session.add(account)
     return account

@@ -4,7 +4,6 @@ import uuid
 from annotated_types import MaxLen, LowerCase
 import sqlalchemy as sa
 from sqlalchemy import orm
-from sqlalchemy.orm import relationship
 
 from helpers.fastapi.sqlalchemy import models, mixins
 from helpers.fastapi.utils import timezone
@@ -13,11 +12,19 @@ from apps.accounts.models import Account
 
 
 def generate_api_client_uid() -> str:
-    return generate_uid(length=16, prefix="petriz_client_")
+    return generate_uid(prefix="petriz_client_")
+
+
+def generate_api_key_uid() -> str:
+    return generate_uid(prefix="petriz_apikey_")
+
+
+def generate_api_key_secret() -> str:
+    return generate_uid(prefix="petriz_apisecret_")
 
 
 class APIClient(
-    mixins.UUIDPrimaryKeyMixin,
+    mixins.UUID7PrimaryKeyMixin,
     mixins.TimestampMixin,
     models.Model,
 ):
@@ -60,7 +67,7 @@ class APIClient(
     account: orm.Mapped[typing.Optional[Account]] = orm.relationship(
         back_populates="clients"
     )
-    api_key: orm.Mapped["APIKey"] = relationship(
+    api_key: orm.Mapped["APIKey"] = orm.relationship(
         back_populates="client",
         cascade="all, delete-orphan",
     )
@@ -69,17 +76,9 @@ class APIClient(
     # Client names should be unique for account
 
 
-def generate_api_key_uid() -> str:
-    return generate_uid(length=24, prefix="petriz_apikey_")
-
-
-def generate_api_key_secret() -> str:
-    return generate_uid(length=24, prefix="petriz_apisecret_")
-
-
 class APIKey(
     mixins.TimestampMixin,
-    mixins.UUIDPrimaryKeyMixin,
+    mixins.UUID7PrimaryKeyMixin,
     models.Model,
 ):
     """Model representing an client api key."""
@@ -110,7 +109,7 @@ class APIKey(
 
     ########## Relationships ############
 
-    client: orm.Mapped[APIClient] = relationship(
+    client: orm.Mapped[APIClient] = orm.relationship(
         back_populates="api_key", single_parent=True
     )
 
