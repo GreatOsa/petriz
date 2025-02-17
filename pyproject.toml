@@ -6,7 +6,7 @@ authors = ["ti-oluwa <105179638+ti-oluwa@users.noreply.github.com>"]
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.12"
+python = "^3.11"
 uvicorn = "^0.30.1"
 fastapi = "^0.111.0"
 pydantic = "^2.7.4"
