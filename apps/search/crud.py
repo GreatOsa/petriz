@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 import typing
+import re
 import datetime
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload
@@ -133,6 +134,16 @@ async def retrieve_topic_terms(
 _UID = typing.Union[str, int]
 
 
+def _query_to_regex_pattern(query: str) -> str:
+    """Convert search query to a flexible regex pattern.
+    Handles spaces, hyphens, and other word separators flexibly."""
+    cleaned = query.strip().lower()
+    escaped = re.escape(cleaned)
+    words = escaped.split(r"\ ")
+    pattern = r".*".join(words)
+    return f".*{pattern}.*"
+
+
 async def search_terms(
     session: AsyncSession,
     query: typing.Optional[str] = None,
@@ -170,14 +181,13 @@ async def search_terms(
         query_filters.append(Term.topics.any(Topic.id.in_([t.id for t in topics])))
 
     if query:
-        query = rf"%{query}%"
+        pattern = _query_to_regex_pattern(query)
         query_filters.append(
-            Term.name.icontains(query)
-            # More thorough but less performant
-            # sa.or_(
-            #     Term.name.icontains(query),
-            #     Term.definition.icontains(query),
-            # )
+            # Term.name.regexp_match(pattern, "i"),
+            sa.or_(
+                Term.name.regexp_match(pattern, "i"),
+                Term.definition.regexp_match(pattern, "i")
+            )
         )
     if source_name:
         query_filters.append(Term.source_name.icontains(source_name))
