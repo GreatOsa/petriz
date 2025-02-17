@@ -130,9 +130,20 @@ async def registration_completion(
     )
     if account_already_exists:
         return response.bad_request("An account with this email already exists.")
+
+    name = data.name
+    if not name:
+        name = token_data["email"].split("@")[0]
+    name_exists = await crud.check_account_name_exists(session=session, name=name)
+    if name_exists:
+        return response.bad_request(
+            f"An account with name {name} already exists. Please provide a different name."
+        )
+
     account = await crud.create_account(
         session=session,
         email=token_data["email"],
+        name=name,
         password=data.password.get_secret_value(),
     )
     await session.commit()

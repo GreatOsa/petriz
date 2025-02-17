@@ -1,4 +1,3 @@
-import datetime
 import typing
 import pydantic
 
@@ -50,7 +49,18 @@ class AccountRegistrationCompletionSchema(pydantic.BaseModel):
     password_set_token: str = pydantic.Field(
         description="Token received on account email verification, to be used to set password."
     )
-
+    name: typing.Optional[
+        typing.Annotated[
+            str,
+            pydantic.StringConstraints(
+                strip_whitespace=True, max_length=50, min_length=1
+            ),
+        ]
+    ] = pydantic.Field(
+        None,
+        title="Account name",
+        description="Name to be used for the account",
+    )
     password: pydantic.SecretStr = pydantic.Field(
         title="Account password",
         description="Secret to be used as account password",
