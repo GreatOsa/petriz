@@ -95,12 +95,10 @@ class TermBaseSchema(pydantic.BaseModel):
         None,
         description="The name of the source from which the term was obtained",
     )
-    source_url: typing.Annotated[
-        typing.Optional[pydantic.AnyUrl],
-        pydantic.UrlConstraints(max_length=255),
-    ] = pydantic.Field(
+    source_url: typing.Optional[pydantic.AnyUrl] = pydantic.Field(
         None,
         description="The URL of the source from which the term was obtained",
+        max_length=255,
     )
 
 
