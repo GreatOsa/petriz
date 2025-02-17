@@ -10,35 +10,35 @@ async def client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
     if not client:
         raise NoLimit()
-    return f"client:authorized:{client.uid}:{connection.scope["path"]}"
+    return f"client:authorized:{client.uid}:{connection.scope['path']}"
 
 
 def anonymous_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
     if client:
         raise NoLimit()
-    return f"client:anonymous:{connection.scope["path"]}"
+    return f"client:anonymous:{connection.scope['path']}"
 
 
 async def internal_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
     if not client or client.client_type != APIClient.ClientType.INTERNAL:
         raise NoLimit()
-    return f"client:internal:{client.uid}:{connection.scope["path"]}"
+    return f"client:internal:{client.uid}:{connection.scope['path']}"
 
 
 async def user_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
     if not client or client.client_type != APIClient.ClientType.USER:
         raise NoLimit()
-    return f"client:user:{client.uid}:{connection.scope["path"]}"
+    return f"client:user:{client.uid}:{connection.scope['path']}"
 
 
 async def partner_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
     if not client or client.client_type != APIClient.ClientType.PARTNER:
         raise NoLimit()
-    return f"client:partner:{client.uid}:{connection.scope["path"]}"
+    return f"client:partner:{client.uid}:{connection.scope['path']}"
 
 
 client_throttle = functools.partial(throttle, identifier=client_identifier)
