@@ -33,7 +33,9 @@ async def check_api_client_name_exists_for_account(
     exists = await session.execute(
         sa.select(
             sa.exists().where(
-                sa.and_(APIClient.name == name, APIClient.account_id == account_id)
+                APIClient.name == name,
+                APIClient.account_id == account_id,
+                ~APIClient.is_deleted,
             )
         )
     )
@@ -44,7 +46,10 @@ async def check_account_can_create_more_clients(
     session: AsyncSession, account: Account
 ):
     client_count = await session.execute(
-        sa.select(sa.func.count()).where(APIClient.account_id == account.id)
+        sa.select(sa.func.count()).where(
+            APIClient.account_id == account.id,
+            ~APIClient.is_deleted,
+        )
     )
     return client_count.scalar() < Account.MAX_CLIENT_COUNT
 
@@ -85,7 +90,10 @@ async def retrieve_api_client(
     """
     result = await session.execute(
         sa.select(APIClient)
-        .filter_by(**filters)
+        .filter_by(
+            is_deleted=False,
+            **filters,
+        )
         .options(joinedload(APIClient.api_key), joinedload(APIClient.account))
     )
     return result.scalar_one_or_none()
@@ -100,7 +108,7 @@ async def retrieve_api_clients(
 ):
     result = await session.execute(
         sa.select(APIClient)
-        .filter_by(**filters)
+        .filter_by(is_deleted=False, **filters)
         .limit(limit)
         .offset(offset)
         .options(joinedload(APIClient.api_key), joinedload(APIClient.account))
@@ -112,9 +120,28 @@ async def retrieve_api_clients_by_uid(
     session: AsyncSession, uids: typing.List[str], **filters
 ):
     result = await session.execute(
-        sa.select(APIClient).where(APIClient.id.in_(uids)).filter_by(**filters)
+        sa.select(APIClient)
+        .where(
+            ~APIClient.is_deleted,
+            APIClient.id.in_(uids),
+        )
+        .filter_by(**filters)
     )
     return result.scalars().all()
+
+
+async def delete_api_client(session: AsyncSession, api_client: APIClient):
+    """
+    Delete an API client. This will also disable the client and its associated api key.
+    """
+    api_client.is_deleted = True
+    api_client.disabled = True
+    if api_client.api_key:
+        api_client.api_key.active = False
+        await session.add(api_client.api_key)
+
+    await session.add(api_client)
+    return None
 
 
 async def delete_api_clients_by_uid(
@@ -136,7 +163,11 @@ async def check_api_key_for_client_exists(
 ) -> bool:
     """Check if an api key exists for a client."""
     exists = await session.execute(
-        sa.select(sa.exists().where(APIKey.client_id == client.id))
+        sa.select(
+            sa.exists().where(
+                APIKey.client_id == client.id,
+            )
+        )
     )
     return exists
 
@@ -161,7 +192,9 @@ async def retrieve_api_key_by_secret(
     """Retrieve an api key by its secret. Eagerly load the associated client."""
     result = await session.execute(
         sa.select(APIKey)
-        .where(APIKey.secret == secret)
+        .where(
+            APIKey.secret == secret,
+        )
         .options(joinedload(APIKey.client))
     )
     return result.scalar_one_or_none()

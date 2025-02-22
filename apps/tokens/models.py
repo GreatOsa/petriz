@@ -8,6 +8,7 @@ from annotated_types import MaxLen
 from helpers.fastapi.models.totp import TimeBasedOTP
 from helpers.fastapi.sqlalchemy import models, mixins
 from helpers.fastapi.utils import timezone
+from helpers.fastapi.config import settings
 from api.utils import generate_uid
 from apps.accounts.models import Account
 
@@ -70,7 +71,7 @@ class AuthToken(
     valid_until: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
         sa.DateTime(timezone=True),
         nullable=True,
-        default=None,
+        default=lambda: timezone.now() + settings.AUTH_TOKEN_VALIDITY_PERIOD,
         insert_default=None,
         index=True,
     )

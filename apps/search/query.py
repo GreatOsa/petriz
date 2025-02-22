@@ -2,8 +2,6 @@ import typing
 import fastapi
 import pydantic
 import datetime
-from annotated_types import Interval
-
 from helpers.fastapi.utils import timezone
 
 
@@ -20,30 +18,30 @@ SearchQuery = typing.Annotated[typing.Optional[str], fastapi.Depends(parse_query
 """Annotated type for a search query parameter of not more than 255 characters"""
 
 
-def parse_source_name(
+def parse_source_query(
     source: typing.Annotated[
         typing.Optional[str],
         fastapi.Query(
-            description="Name of preferred source of query results", max_length=50
+            description="Name or UID of preferred source of query results",
+            max_length=255,
         ),
     ] = None,
 ) -> typing.Optional[str]:
     return (source or "").strip() or None
 
 
-SourceName = typing.Annotated[
+Source = typing.Annotated[
     typing.Optional[str],
-    pydantic.StringConstraints(to_lower=True),
-    fastapi.Depends(parse_source_name),
+    fastapi.Depends(parse_source_query),
 ]
-"""Annotated type for a query result's source name of not more than 50 characters"""
+"""Annotated type for a query result's source name or UID of not more than 255 characters"""
 
 
 def parse_topics_query(
     topics: typing.Annotated[
         typing.Optional[str],
         fastapi.Query(
-            description="Comma-separated string of topics to filter by",
+            description="Comma-separated string of topic names or UIDs to filter by",
         ),
     ] = None,
 ) -> typing.Optional[typing.List[str]]:
@@ -79,8 +77,7 @@ def parse_verified_query(
 
 
 IncludeRelated = typing.Annotated[
-    int,
-    Interval(ge=0, le=20),
+    bool,
     fastapi.Query(description="How many related terms should be fetched/included ?"),
 ]
 """

@@ -7,13 +7,27 @@ from .models import Account
 
 async def check_account_name_exists(session: AsyncSession, name: str) -> bool:
     """Check if an account with the given name exists."""
-    exists = await session.execute(sa.select(sa.exists().where(Account.name == name)))
+    exists = await session.execute(
+        sa.select(
+            sa.exists().where(
+                Account.name == name,
+                ~Account.is_deleted,
+            )
+        )
+    )
     return exists.scalar()
 
 
 async def check_account_exists(session: AsyncSession, email: str) -> bool:
     """Check if an account with the given email exists."""
-    exists = await session.execute(sa.select(sa.exists().where(Account.email == email)))
+    exists = await session.execute(
+        sa.select(
+            sa.exists().where(
+                Account.email == email,
+                ~Account.is_deleted,
+            )
+        )
+    )
     return exists.scalar()
 
 
@@ -30,7 +44,12 @@ async def create_account(
 async def retrieve_account_by_email(
     session: AsyncSession, email: str
 ) -> typing.Optional[Account]:
-    result = await session.execute(sa.select(Account).where(Account.email == email))
+    result = await session.execute(
+        sa.select(Account).where(
+            Account.email == email,
+            ~Account.is_deleted,
+        )
+    )
     return result.scalar()
 
 

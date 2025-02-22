@@ -1,3 +1,4 @@
+import datetime
 import os
 from pathlib import Path
 from dotenv import load_dotenv, find_dotenv
@@ -127,3 +128,5 @@ RESPONSE_FORMATTER = {
 }
 
 REDIS_LOCATION = os.getenv("REDIS_LOCATION")
+
+AUTH_TOKEN_VALIDITY_PERIOD = datetime.timedelta(days=30)

@@ -44,6 +44,14 @@ class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser):
         doc="Account email",
     )
 
+    is_deleted: orm.Mapped[bool] = orm.mapped_column(
+        index=True,
+        nullable=False,
+        default=False,
+        insert_default=False,
+        doc="Flag indicating if the account has been deleted",
+    )
+
     ######### Relationships #############
 
     auth_token = orm.relationship(

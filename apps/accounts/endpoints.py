@@ -187,7 +187,7 @@ async def authentication_initiation(
     if not account or not account.check_password(data.password.get_secret_value()):
         return response.bad_request("Invalid authentication credentials.")
     if not account.is_active:
-        return response.bad_request("Account deactivated. Contact support.")
+        return response.bad_request("Account deactivated! Contact support.")
 
     totp = await totps.generate_totp_for_identifier(
         identifier=data.email, session=session, request=request
@@ -234,10 +234,19 @@ async def authentication_completion(
     auth_token, created = await auth_tokens.get_or_create_auth_token(
         session=session, account=account
     )
-    await session.commit()
     if created:
+        await session.commit()
         await session.refresh(auth_token)
 
+    if not auth_token.is_valid:
+        await session.delete(auth_token)
+        auth_token = await auth_tokens.create_auth_token(
+            account=account,
+            session=session,
+        )
+        await session.commit()
+        await session.refresh(auth_token)
+    
     response_data = {
         "account": schemas.AccountSchema.model_validate(account),
         "auth_token": auth_token.secret,
@@ -356,6 +365,8 @@ async def password_reset_completion(
     account.set_password(data.new_password.get_secret_value())
     session.add(account)
     await session.commit()
+    # Invalidate all authentications for the account
+    await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
     return response.success("Password reset successfully!")
 
 
@@ -501,12 +512,8 @@ async def change_password(
     ],
 )
 async def universal_logout_view(session: DBSession, account: ActiveUser):
-    auth_token, _ = await auth_tokens.get_or_create_auth_token(
-        session=session, account=account
-    )
-    if auth_token:
-        await session.delete(auth_token)
-        await session.commit()
+    await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
+    await session.commit()
     return response.success("Account logged-out successfully!")
 
 
@@ -520,6 +527,10 @@ async def universal_logout_view(session: DBSession, account: ActiveUser):
     ],
 )
 async def delete_account(account: ActiveUser, session: DBSession):
-    await session.delete(account)
+    account.is_deleted = True
+    account.is_active = False
+    await session.add(account)
+    # Invalidate all authentications for the account
+    await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
     await session.commit()
     return response.no_content("Account deleted successfully!")

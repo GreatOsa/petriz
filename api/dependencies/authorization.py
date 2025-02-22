@@ -4,11 +4,12 @@ from starlette.requests import HTTPConnection
 
 from helpers.fastapi.dependencies.access_control import access_control
 from helpers.fastapi.sqlalchemy.setup import get_async_session
-from helpers.fastapi.dependencies.connections import _DBSession, DBSession
+from helpers.fastapi.dependencies.connections import DBSession, _DBSession
 from helpers.fastapi.dependencies import Dependency
 
 from apps.clients.models import APIClient
 from apps.clients.crud import retrieve_api_client
+from ..permissions import resolve_permissions, check_permissions
 
 
 API_SECRET_HEADER = "X-CLIENT-SECRET"
@@ -125,9 +126,31 @@ Attaches the `INTERNAL` type client object to the connection state if the client
 """
 
 
+def permissions_required(*permissions: str):
+    """
+    Checks if the authorized API client has the required permissions.
+
+    :param connection: The HTTP connection.
+    :param permissions: The required permissions.
+    :return: True if the client has the required permissions, False otherwise.
+    """
+    permission_set = resolve_permissions(*permissions)
+
+    async def _check_client_permissions(connection: HTTPConnection, _):
+        client = getattr(connection.state, "client", None)
+        if not isinstance(client, APIClient):
+            return False
+        return check_permissions(client, *permission_set)
+
+    return access_control(
+        _check_client_permissions, message="Unauthorized resource access!"
+    )
+
+
 __all__ = [
     "authorized_api_client_only",
     "AuthorizedAPIClient",
     "internal_api_clients_only",
     "InternalAPIClient",
+    "required_permissions",
 ]

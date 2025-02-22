@@ -3,6 +3,7 @@ import typing
 from annotated_types import MaxLen, MinLen
 
 from helpers.fastapi.utils import timezone
+from helpers.generics.pydantic import partial
 from .models import APIClient
 
 
@@ -73,6 +74,15 @@ class APIClientCreateSchema(APIClientBaseSchema):
     pass
 
 
+class APIClientSimpleSchema(APIClientBaseSchema):
+    """API Client simple schema. For serialization purposes only."""
+
+    uid: pydantic.StrictStr = pydantic.Field(description="API Client UID")
+    client_type: APIClient.ClientType = pydantic.Field(
+        description="API Client type", strip=True
+    )
+
+
 class APIClientSchema(APIClientBaseSchema):
     """API Client schema. For serialization purposes only."""
 
@@ -97,6 +107,7 @@ class APIClientSchema(APIClientBaseSchema):
         from_attributes = True
 
 
+@partial
 class APIClientUpdateSchema(APIClientBaseSchema):
     """API Client update schema."""
 
@@ -104,7 +115,7 @@ class APIClientUpdateSchema(APIClientBaseSchema):
 
 
 class APIClientBulkDeleteSchema(pydantic.BaseModel):
-    client_ids: typing.Annotated[
+    client_uids: typing.Annotated[
         typing.List[pydantic.StrictStr], MinLen(1), MaxLen(50)
     ] = pydantic.Field(
         ...,

@@ -23,6 +23,10 @@ def generate_api_key_secret() -> str:
     return generate_uid(prefix="petriz_apisecret_")
 
 
+def generate_permission_uid() -> str:
+    return generate_uid(prefix="petriz_permission_")
+
+
 class APIClient(
     mixins.UUID7PrimaryKeyMixin,
     mixins.TimestampMixin,
@@ -58,7 +62,13 @@ class APIClient(
     client_type: orm.Mapped[ClientType] = orm.mapped_column(
         sa.Enum(ClientType, use_native=False), nullable=False
     )
+    permissions: orm.Mapped[typing.Set[str]] = orm.mapped_column(
+        sa.ARRAY(sa.String), nullable=True
+    )
     disabled: orm.Mapped[bool] = orm.mapped_column(
+        default=False, index=True, insert_default=False
+    )
+    is_deleted: orm.Mapped[bool] = orm.mapped_column(
         default=False, index=True, insert_default=False
     )
 

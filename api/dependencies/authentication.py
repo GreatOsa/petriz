@@ -12,15 +12,15 @@ from apps.clients.models import APIClient
 from .authorization import AuthorizedAPIClient
 
 
-async def _get_user_from_auth_token(auth_token: str, session: _DBSession):
-    token = await auth_tokens.get_auth_token_by_secret(session, auth_token)
+async def _get_user_from_auth_token(secret: str, session: _DBSession):
+    token = await auth_tokens.get_auth_token_by_secret(session, secret)
     if token and token.is_valid:
         return token.owner
     return None
 
 
 AUTHENTICATION_HEADER = "Authorization"
-AUTH_TOKEN_PREFIX = "AuthToken "
+CREDENTIAL_SCHEME = "AuthToken"
 
 
 async def check_authentication_credentials(
@@ -48,11 +48,11 @@ async def check_authentication_credentials(
             if not auth_header:
                 return False
 
-            if not auth_header.startswith(AUTH_TOKEN_PREFIX):
+            scheme, _, credential = auth_header.partition(" ")
+            if scheme.lower() != CREDENTIAL_SCHEME.lower():
                 return False
 
-            auth_token = auth_header.split(" ")[-1]
-            user = await _get_user_from_auth_token(auth_token, session)
+            user = await _get_user_from_auth_token(credential, session)
         if not user:
             return False
 
@@ -83,16 +83,14 @@ async def authenticate_connection(connection: AuthorizedAPIClient, session: DBSe
         raise_access_denied=False,
     )
     return await _depends.dependency(connection, session)
-    
+
 
 @Dependency
 # Override the regular `access_control` dependency factory, such that
 # the authentication credential check is only done on authorized clients
 # and the connection state is updated with the authenticated user if the credentials are valid
 # else an HTTP 401 Unauthorized error is raised
-async def authentication_required(
-    connection: AuthorizedAPIClient, session: DBSession
-):
+async def authentication_required(connection: AuthorizedAPIClient, session: DBSession):
     """
     Connection access control dependency.
 

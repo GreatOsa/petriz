@@ -47,11 +47,14 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.sqlalchemy.models import ModelBase
     from helpers.fastapi.apps import configure_apps
     from helpers.fastapi.requests import throttling
+    from apps.search.models import execute_search_ddls
 
     try:
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
         await configure_apps()
+        
         # Any setup code that needs to run before the application starts goes here
+        execute_search_ddls()
         async with throttling.configure(
             persistent=app.debug
             is False,  # Disables persistent rate limiting in debug mode

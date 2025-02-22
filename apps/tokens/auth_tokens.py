@@ -25,10 +25,11 @@ async def create_auth_token(session: AsyncSession, account: Account) -> AuthToke
 
 
 async def get_or_create_auth_token(session: AsyncSession, account: Account):
+    """Get or create an auth token for an account."""
     result = await session.execute(
         sa.select(AuthToken).where(AuthToken.account_id == account.id)
     )
-    
+
     created = False
     existing_token = result.scalar()
     if not existing_token:
@@ -36,6 +37,24 @@ async def get_or_create_auth_token(session: AsyncSession, account: Account):
         created = True
         return new_token, created
     return existing_token, created
+
+
+async def retrieve_auth_token(
+    session: AsyncSession, **filters
+) -> typing.Optional[AuthToken]:
+    """
+    Retrieve an auth token by the given filters.
+    """
+    result = await session.execute(
+        sa.select(AuthToken).where(**filters).options(joinedload(AuthToken.owner))
+    )
+    return result.scalar()
+
+
+async def delete_auth_tokens(session: AsyncSession, **filters):
+    """Delete auth tokens by the given filters."""
+    result = await session.execute(sa.delete(AuthToken).where(**filters))
+    return result.scalar()
 
 
 async def get_auth_token_by_secret(
@@ -47,4 +66,4 @@ async def get_auth_token_by_secret(
         .where(AuthToken.secret == secret)
         .options(joinedload(AuthToken.owner))
     )
-    return result.scalar_one_or_none()
+    return result.scalar()

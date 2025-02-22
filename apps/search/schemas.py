@@ -2,6 +2,9 @@ import typing
 from annotated_types import MaxLen, MinLen
 import pydantic
 
+from helpers.generics.pydantic import partial
+from apps.clients.schemas import APIClientSimpleSchema
+
 
 class TopicBaseSchema(pydantic.BaseModel):
     """Topic base schema."""
@@ -36,6 +39,7 @@ class TopicCreateSchema(TopicBaseSchema):
     pass
 
 
+@partial
 class TopicUpdateSchema(TopicBaseSchema):
     """Topic update schema."""
 
@@ -51,6 +55,74 @@ class TopicSchema(TopicBaseSchema):
     )
     updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         description="The date and time the topic was last updated"
+    )
+
+    class Config:
+        from_attributes = True
+
+
+class TermSourceBaseSchema(pydantic.BaseModel):
+    """TermSource base schema."""
+
+    name: typing.Annotated[
+        str,
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=255,
+        ),
+    ] = pydantic.Field(
+        ...,
+        description="The name of the source",
+    )
+    url: typing.Optional[pydantic.AnyUrl] = pydantic.Field(
+        None, description="The URL of the source", max_length=500
+    )
+    description: typing.Annotated[
+        typing.Optional[str],
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=5000,
+        ),
+    ] = pydantic.Field(
+        None,
+        description="Description of the source",
+    )
+
+
+class TermSourceCreateSchema(TermSourceBaseSchema):
+    """TermSource creation schema."""
+
+    pass
+
+
+@partial
+class TermSourceGetOrCreateSchema(TermSourceBaseSchema):
+    """TermSource get or create schema."""
+
+    uid: typing.Optional[pydantic.StrictStr] = pydantic.Field(
+        None,
+        description="The UID of the source",
+    )
+
+
+@partial
+class TermSourceUpdateSchema(TermSourceBaseSchema):
+    """TermSource update schema."""
+
+    pass
+
+
+class TermSourceSchema(TermSourceBaseSchema):
+    """TermSource schema. For serialization purposes only."""
+
+    uid: pydantic.StrictStr
+    created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the source was created/added"
+    )
+    updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the source was last updated"
     )
 
     class Config:
@@ -73,68 +145,91 @@ class TermBaseSchema(pydantic.BaseModel):
     )
     definition: typing.Annotated[
         str,
-        MaxLen(5000),
-        MinLen(1),
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=5000,
+        ),
     ] = pydantic.Field(
         ...,
         description="The definition of the term",
     )
     grammatical_label: typing.Annotated[
         typing.Optional[pydantic.StrictStr],
-        MaxLen(50),
-        MinLen(1),
+        pydantic.StringConstraints(
+            strip_whitespace=True,
+            min_length=1,
+            max_length=50,
+        ),
     ] = pydantic.Field(
         None,
         description="The part of speech of the term",
-    )
-    source_name: typing.Annotated[
-        typing.Optional[str],
-        MaxLen(255),
-        MinLen(1),
-    ] = pydantic.Field(
-        None,
-        description="The name of the source from which the term was obtained",
-    )
-    source_url: typing.Optional[pydantic.AnyUrl] = pydantic.Field(
-        None,
-        description="The URL of the source from which the term was obtained",
-        max_length=255,
     )
 
 
 class TermCreateSchema(TermBaseSchema):
     """Term creation schema."""
 
+    source: typing.Optional[TermSourceGetOrCreateSchema] = pydantic.Field(
+        None,
+        description="The source from which the term was obtained, by name or UID",
+    )
     topics: typing.Set[str] = pydantic.Field(
         default_factory=set,
-        description="The topics the term belongs to",
+        description="The topics the term belongs to, by name or UID",
     )
 
 
+@partial
 class TermUpdateSchema(TermBaseSchema):
     """Term update schema."""
 
+    source: typing.Optional[TermSourceGetOrCreateSchema] = pydantic.Field(
+        None,
+        description="The source from which the term was obtained, by name or UID",
+    )
+    verified: pydantic.StrictBool = pydantic.Field(
+        description="Whether the term an its definition have been vetted and verified to be correct",
+    )
     topics: typing.Set[str] = pydantic.Field(
         default_factory=set,
-        description="The topics the term belongs to",
+        description="The topics the term belongs to, by name or UID",
     )
-    replace_topics: typing.Optional[bool] = pydantic.Field(
+    replace_topics: pydantic.StrictBool = pydantic.Field(
         False,
         description="Whether to replace the existing topics with the new ones. If False, the new topics will be added to the existing ones",
     )
 
 
-class TermSchema(TermBaseSchema):
+class BaseTermSerializationSchema(TermBaseSchema):
+    uid: pydantic.StrictStr
+
+    class Config:
+        from_attributes = True
+
+    def __hash__(self):
+        return hash(self.uid)
+
+
+class TermSchema(BaseTermSerializationSchema):
     """Term schema. For serialization purposes only."""
 
-    uid: pydantic.StrictStr
+    source: typing.Optional[TermSourceSchema] = pydantic.Field(
+        None,
+        description="The source from which the term was obtained",
+    )
     topics: typing.Set[TopicSchema] = pydantic.Field(
         default_factory=set,
         description="The topics the term belongs to",
     )
-    verified: typing.Optional[pydantic.StrictBool] = pydantic.Field(
+    verified: pydantic.StrictBool = pydantic.Field(
         False,
         description="Whether the term an its definition have been vetted and verified to be correct",
+    )
+    related: typing.Set[BaseTermSerializationSchema] = pydantic.Field(
+        alias="relatives",
+        default_factory=set,
+        description="The terms related to this term",
     )
     created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         description="The date and time the term was created/added"
@@ -142,9 +237,6 @@ class TermSchema(TermBaseSchema):
     updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         description="The date and time the term was last updated"
     )
-
-    class Config:
-        from_attributes = True
 
 
 class SearchRecordSchema(pydantic.BaseModel):
@@ -164,6 +256,9 @@ class SearchRecordSchema(pydantic.BaseModel):
     topics: typing.Set[TopicSchema] = pydantic.Field(
         default_factory=set,
         description="The topics the search query was made on",
+    )
+    client: typing.Optional[APIClientSimpleSchema] = pydantic.Field(
+        description="The client that made the search"
     )
     extradata: typing.Optional[typing.Dict[str, pydantic.JsonValue]] = pydantic.Field(
         default=None,

@@ -24,11 +24,14 @@ async def create_internal_api_client(
             session=session,
             client_type=crud.APIClient.ClientType.INTERNAL,
         )
-        await session.commit()
+        await session.flush()
         api_key = await crud.create_api_key(
             session=session, client=api_client, valid_until=valid_until
         )
         await session.commit()
 
+    sys.stdout.write("############################################\n")
     sys.stdout.write(f"API Client ID: {api_client.uid}\n")
     sys.stdout.write(f"API Client Secret: {api_key.secret}\n")
+    sys.stdout.write("############################################\n")
+    sys.stdout.write("\n")
