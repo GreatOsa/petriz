@@ -49,11 +49,11 @@ This project requires Python 3.10 or higher. To set up the project, follow these
 
 - Load seed terms in `/slb_terms/` directory into the database
   
-> This step requires the `load_terms.sh` script to be executable. Also it might take a while to load all the terms into the database.
-  
   ```bash
    chmod +x ./scripts/load_terms.sh && ./scripts/load_terms.sh ./slb_terms
     ```
+
+> This step requires the `load_terms.sh` script to be executable. Also it might take a while to load all the terms into the database.
 
 - Run the project
   
