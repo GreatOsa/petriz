@@ -24,6 +24,7 @@ DEFAULT_CLIENT_DEPENDENCIES = (
     authorization.authorized_api_client_only,
     *throttles.INTERNAL_CLIENT_THROTTLES,
     *throttles.USER_CLIENT_THROTTLES,
+    *throttles.PUBLIC_CLIENT_THROTTLES,
     *throttles.PARTNER_CLIENT_THROTTLES,
 )
 

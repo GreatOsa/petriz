@@ -10,6 +10,11 @@ from .models import APIClient
 class APIKeyBaseSchema(pydantic.BaseModel):
     """API Key base schema."""
 
+    active: pydantic.StrictBool = pydantic.Field(
+        description="Is the API Key active and usable?",
+        validation_alias="_active",
+        serialization_alias="active",
+    )
     valid_until: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         default=None, description="API Key expiration date and time"
     )
@@ -20,11 +25,6 @@ class APIKeySchema(APIKeyBaseSchema):
 
     uid: pydantic.StrictStr = pydantic.Field(description="API Key UID")
     secret: pydantic.StrictStr = pydantic.Field(description="API Key secret")
-    active: pydantic.StrictBool = pydantic.Field(
-        description="Is the API Key active and usable?",
-        validation_alias="_active",
-        serialization_alias="active",
-    )
     valid: pydantic.StrictBool = pydantic.Field(
         description="Is the API Key valid or expired?"
     )
@@ -39,6 +39,7 @@ class APIKeySchema(APIKeyBaseSchema):
         from_attributes = True
 
 
+@partial
 class APIKeyUpdateSchema(APIKeyBaseSchema):
     @pydantic.field_validator("valid_until", mode="after")
     @classmethod
@@ -56,7 +57,10 @@ class APIClientBaseSchema(pydantic.BaseModel):
         typing.Annotated[
             str,
             pydantic.StringConstraints(
-                strip_whitespace=True, to_lower=True, min_length=6, max_length=50
+                strip_whitespace=True,
+                to_lower=True,
+                min_length=6,
+                max_length=50,
             ),
         ]
     ] = pydantic.Field(
@@ -71,7 +75,9 @@ class APIClientBaseSchema(pydantic.BaseModel):
 class APIClientCreateSchema(APIClientBaseSchema):
     """API Client creation schema."""
 
-    pass
+    client_type: APIClient.ClientType = pydantic.Field(
+        description="API Client type", strip=True
+    )
 
 
 class APIClientSimpleSchema(APIClientBaseSchema):

@@ -1,3 +1,4 @@
+import datetime
 import typing
 import enum
 import uuid
@@ -38,6 +39,7 @@ class APIClient(
 
     class ClientType(enum.StrEnum):
         INTERNAL = "internal"
+        PUBLIC = "public"
         PARTNER = "partner"
         USER = "user"
 
@@ -59,27 +61,40 @@ class APIClient(
         nullable=True,
         index=True,
     )
-    client_type: orm.Mapped[ClientType] = orm.mapped_column(
-        sa.Enum(ClientType, use_native=False), nullable=False
-    )
-    permissions: orm.Mapped[typing.Set[str]] = orm.mapped_column(
-        sa.ARRAY(sa.String), nullable=True
+    client_type: orm.Mapped[str] = orm.mapped_column(
+        sa.String(50), nullable=False, index=True
     )
     disabled: orm.Mapped[bool] = orm.mapped_column(
         default=False, index=True, insert_default=False
     )
+    permissions: orm.Mapped[typing.List[str]] = orm.mapped_column(
+        sa.ARRAY(sa.String, dimensions=1), nullable=True
+    )
+    permissions_modified_at: orm.Mapped[typing.Optional[datetime.datetime]] = sa.Column(
+        sa.DateTime(timezone=True), nullable=True, index=True
+    )
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
         default=False, index=True, insert_default=False
+    )
+    created_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.UUID,
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
 
     ######### Relationships #############
 
     account: orm.Mapped[typing.Optional[Account]] = orm.relationship(
-        back_populates="clients"
+        back_populates="clients",
+        foreign_keys=[account_id]
     )
     api_key: orm.Mapped["APIKey"] = orm.relationship(
         back_populates="client",
         cascade="all, delete-orphan",
+    )
+    created_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        foreign_keys=[created_by_id]
     )
 
     __table_args__ = (sa.UniqueConstraint("account_id", "name"),)

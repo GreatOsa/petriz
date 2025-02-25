@@ -39,7 +39,10 @@ TermSourceUID = typing.Annotated[str, fastapi.Path(description="Term Source UID"
 @router.get(
     "",
     dependencies=[
-        # permissions_required("search::*::list"),
+        permissions_required(
+            "terms::*::list",
+            "search_records::*::create",
+        ),
         authenticate_connection,
     ],
     description="Search terms in the glossary.",
@@ -115,6 +118,7 @@ async def search_terms(
     "/terms",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("terms::*::create"),
         authentication_required,
     ],
     description="Add a new term to the glossary",
@@ -156,6 +160,7 @@ async def create_term(
 @router.get(
     "/terms/{term_uid}",
     dependencies=[
+        permissions_required("terms::*::view"),
         authenticate_connection,
     ],
     description="Retrieve a glossary term by its UID",
@@ -182,6 +187,7 @@ async def retrieve_term(
     "/terms/{term_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("terms::*::update"),
         authentication_required,
         staff_user_only,
     ],
@@ -235,6 +241,7 @@ async def update_term(
     "/terms/{term_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("terms::*::delete"),
         authentication_required,
         staff_user_only,
     ],
@@ -257,6 +264,9 @@ async def delete_term(
 @router.get(
     "/topics",
     description="Retrieve a list of available topics",
+    dependencies=[
+        permissions_required("topics::*::list"),
+    ],
 )
 async def retrieve_topics(
     request: fastapi.Request,
@@ -281,6 +291,7 @@ async def retrieve_topics(
     description="Create a new topic",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("topics::*::create"),
         authentication_required,
         staff_user_only,
     ],
@@ -297,6 +308,9 @@ async def create_topic(
 @router.get(
     "/topics/{topic_uid}",
     description="Retrieve a topic by its UID",
+    dependencies=[
+        permissions_required("topics::*::view"),
+    ],
 )
 async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
     topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
@@ -309,6 +323,12 @@ async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
 @router.get(
     "/topics/{topic_uid}/terms",
     description="Retrieve a list of available terms associated with this topic",
+    dependencies=[
+        permissions_required(
+            "topics::*::view",
+            "terms::*::list",
+        ),
+    ],
 )
 async def retrieve_topic_terms(
     request: fastapi.Request,
@@ -352,6 +372,7 @@ async def retrieve_topic_terms(
     "/topics/{topic_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("topics::*::update"),
         authentication_required,
         staff_user_only,
     ],
@@ -382,6 +403,7 @@ async def update_topic(
     "/topics/{topic_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("topics::*::delete"),
         authentication_required,
         staff_user_only,
     ],
@@ -401,6 +423,9 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
 @router.get(
     "/sources",
     description="Retrieve a list of available term sources",
+    dependencies=[
+        permissions_required("term_sources::*::list"),
+    ],
 )
 async def retrieve_term_sources(
     request: fastapi.Request,
@@ -428,6 +453,7 @@ async def retrieve_term_sources(
     description="Create a new term source",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("term_sources::*::create"),
         authentication_required,
         staff_user_only,
     ],
@@ -444,6 +470,9 @@ async def create_term_source(
 @router.get(
     "/sources/{term_source_uid}",
     description="Retrieve a term source by its UID",
+    dependencies=[
+        permissions_required("term_sources::*::view"),
+    ],
 )
 async def retrieve_term_source(
     session: DBSession,
@@ -459,6 +488,12 @@ async def retrieve_term_source(
 @router.get(
     "/sources/{term_source_uid}/terms",
     description="Retrieve a list of available terms associated with this source",
+    dependencies=[
+        permissions_required(
+            "term_sources::*::view",
+            "terms::*::list",
+        ),
+    ],
 )
 async def retrieve_source_terms(
     request: fastapi.Request,
@@ -504,6 +539,7 @@ async def retrieve_source_terms(
     "/sources/{term_source_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("term_sources::*::update"),
         authentication_required,
         staff_user_only,
     ],
@@ -534,6 +570,7 @@ async def update_term_source(
     "/sources/{term_source_uid}",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("term_sources::*::delete"),
         authentication_required,
         staff_user_only,
     ],
@@ -556,6 +593,7 @@ async def delete_term_source(
 @router.get(
     "/history",
     dependencies=[
+        permissions_required("search_records::*::list"),
         authentication_required,
     ],
     description="Retrieve the search history of the authenticated user/account",
@@ -564,7 +602,6 @@ async def retrieve_account_search_history(
     request: fastapi.Request,
     session: DBSession,
     account: ActiveUser,
-    # Query parameters
     query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
     topics: typing.Annotated[
         Topics,
@@ -582,14 +619,12 @@ async def retrieve_account_search_history(
     limit: typing.Annotated[Limit, Le(100)] = 50,
     offset: Offset = 0,
 ):
-    client = getattr(request.state, "client", None)
     if topics:
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
 
     search_history = await crud.retrieve_account_search_history(
         session,
         account=account,
-        client=client,
         query=query,
         topics=topics,
         timestamp_gte=timestamp_gte,
@@ -615,6 +650,7 @@ async def retrieve_account_search_history(
 @router.delete(
     "/history",
     dependencies=[
+        permissions_required("search_records::*::delete"),
         authentication_required,
     ],
     description="Delete the search history of the authenticated user/account",
@@ -639,14 +675,12 @@ async def delete_account_search_history(
         Doc("Only include search records that were created before this timestamp"),
     ] = None,
 ):
-    client = getattr(request.state, "client", None)
     if topics:
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
 
     deleted_records_count = await crud.delete_account_search_history(
         session,
         account=account,
-        client=client,
         query=query,
         topics=topics,
         timestamp_gte=timestamp_gte,
@@ -662,6 +696,7 @@ async def delete_account_search_history(
 @router.get(
     "/metrics",
     dependencies=[
+        permissions_required("search_records::*::list"),
         authentication_required,
     ],
     description="Retrieve search metrics of the authenticated user/account",

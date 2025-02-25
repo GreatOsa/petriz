@@ -39,7 +39,7 @@ async def check_authentication_credentials(
     if not isinstance(client, APIClient):
         return False
 
-    if client.client_type == APIClient.ClientType.USER:
+    if client.client_type.lower() == APIClient.ClientType.USER:
         user = client.account
 
     else:

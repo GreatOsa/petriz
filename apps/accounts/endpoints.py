@@ -6,7 +6,7 @@ from helpers.fastapi.mailing import send_mail
 from helpers.fastapi.dependencies.connections import DBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
-from api.dependencies.authorization import internal_api_clients_only
+from api.dependencies.authorization import internal_api_clients_only, permissions_required
 from api.dependencies.authentication import authentication_required
 from apps.tokens import auth_tokens, totps
 
@@ -25,6 +25,7 @@ router = fastapi.APIRouter()
     summary="Initiate the registration process for a new account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::create"),
     ],
 )
 async def registration_initiation(
@@ -65,6 +66,7 @@ async def registration_initiation(
     summary="Verify the OTP token for email registration.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::create"),
     ],
 )
 async def registration_email_verification(
@@ -108,6 +110,7 @@ async def registration_email_verification(
     summary="Complete the registration process for a new account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::create"),
     ],
 )
 async def registration_completion(
@@ -173,6 +176,7 @@ async def registration_completion(
     summary="Initiate the authentication process for a new account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::authenticate"),
     ],
 )
 async def authentication_initiation(
@@ -213,6 +217,7 @@ async def authentication_initiation(
     summary="Verify the OTP token for sent to authenticated account email to receive auth token.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::authenticate"),
     ],
 )
 async def authentication_completion(
@@ -268,6 +273,7 @@ async def authentication_completion(
     summary="Initiate the password reset process for an account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
     ],
 )
 async def password_reset_initiation(
@@ -303,6 +309,7 @@ async def password_reset_initiation(
     summary="Verify the OTP token for password reset.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
     ],
 )
 async def password_reset_verification(
@@ -339,6 +346,7 @@ async def password_reset_verification(
     summary="Complete the password reset process for an account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
     ],
 )
 async def password_reset_completion(
@@ -381,6 +389,7 @@ async def password_reset_completion(
     summary="Retrieve the authenticated account details.",
     dependencies=[
         authentication_required,
+        permissions_required("accounts::*::view"),
     ],
 )
 async def retrieve_account(account: ActiveUser):
@@ -393,6 +402,7 @@ async def retrieve_account(account: ActiveUser):
     summary="Update the authenticated account details.",
     dependencies=[
         authentication_required,
+        permissions_required("accounts::*::update"),
     ],
 )
 async def update_account(
@@ -416,6 +426,7 @@ async def update_account(
     summary="Update the authenticated account email.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
         authentication_required,
     ],
 )
@@ -454,6 +465,7 @@ async def initiate_email_change(
     summary="Verify the OTP token for email change and update the authenticated account email.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
         authentication_required,
     ],
 )
@@ -486,6 +498,7 @@ async def complete_email_change(
     summary="Update the authenticated account password.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::update"),
         authentication_required,
     ],
 )
@@ -508,6 +521,7 @@ async def change_password(
     tags=["authentication"],
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::authenticate"),
         authentication_required,
     ],
 )
@@ -523,6 +537,7 @@ async def universal_logout_view(session: DBSession, account: ActiveUser):
     summary="Delete the authenticated account.",
     dependencies=[
         internal_api_clients_only,
+        permissions_required("accounts::*::delete"),
         authentication_required,
     ],
 )

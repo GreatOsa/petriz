@@ -26,15 +26,12 @@ def generate_api_client_name() -> str:
     return "-".join(words[:4])
 
 
-async def check_api_client_name_exists_for_account(
-    session: AsyncSession, account_id: str, name: str
-) -> bool:
-    """Check if a client name exists for an account."""
+async def check_api_client_name_exists(session: AsyncSession, name: str) -> bool:
+    """Check if a client name exists already."""
     exists = await session.execute(
         sa.select(
             sa.exists().where(
                 APIClient.name == name,
-                APIClient.account_id == account_id,
                 ~APIClient.is_deleted,
             )
         )
@@ -56,25 +53,24 @@ async def check_account_can_create_more_clients(
 
 async def create_api_client(
     session: AsyncSession,
-    account_id: typing.Optional[str] = None,
+    account: typing.Optional[Account] = None,
     name: typing.Optional[str] = None,
     **kwargs,
 ):
     name = name or generate_api_client_name()
-    if name and account_id:
-        if await check_api_client_name_exists_for_account(session, account_id, name):
-            raise fastapi.exceptions.ValidationException(
-                errors=[
-                    "Client with this name already exists for account.",
-                ]
-            )
+    if await check_api_client_name_exists(session, name):
+        raise fastapi.exceptions.ValidationException(
+            errors=[
+                "Client with this name already exists!",
+            ]
+        )
 
-    if account_id:
+    if account:
         kwargs["client_type"] = APIClient.ClientType.USER
 
     api_client = APIClient(
         name=name,
-        account_id=account_id,
+        account=account,
         **kwargs,
     )
     session.add(api_client)

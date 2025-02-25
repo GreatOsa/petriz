@@ -22,21 +22,28 @@ def anonymous_client_identifier(connection: HTTPConnection):
 
 async def internal_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type != APIClient.ClientType.INTERNAL:
+    if not client or client.client_type.lower() != APIClient.ClientType.INTERNAL:
         raise NoLimit()
     return f"client:internal:{client.uid}:{connection.scope['path']}"
 
 
 async def user_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type != APIClient.ClientType.USER:
+    if not client or client.client_type.lower() != APIClient.ClientType.USER:
         raise NoLimit()
     return f"client:user:{client.uid}:{connection.scope['path']}"
 
 
+async def public_client_identifier(connection: HTTPConnection):
+    client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
+    if not client or client.client_type.lower() != APIClient.ClientType.PUBLIC:
+        raise NoLimit()
+    return f"client:public:{client.uid}:{connection.scope['path']}"
+
+
 async def partner_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type != APIClient.ClientType.PARTNER:
+    if not client or client.client_type.lower() != APIClient.ClientType.PARTNER:
         raise NoLimit()
     return f"client:partner:{client.uid}:{connection.scope['path']}"
 
@@ -56,6 +63,11 @@ internal_client_throttle = functools.partial(
 
 user_client_throttle = functools.partial(throttle, identifier=user_client_identifier)
 """Throttle for `user` type authorized API clients"""
+
+public_client_throttle = functools.partial(
+    throttle, identifier=public_client_identifier
+)
+"""Throttle for `public` type authorized API clients"""
 
 partner_client_throttle = functools.partial(
     throttle, identifier=partner_client_identifier
@@ -82,6 +94,11 @@ internal_client_sustained = internal_client_throttle(limit=5000, seconds=1)
 user_client_burst = user_client_throttle(limit=100_000, hours=1)
 user_client_surge = user_client_throttle(limit=5000, minutes=1)
 user_client_sustained = user_client_throttle(limit=1000, seconds=1)
+
+# Public client throttling
+public_client_burst = public_client_throttle(limit=300_000, hours=1)
+public_client_surge = public_client_throttle(limit=20_000, minutes=1)
+public_client_sustained = public_client_throttle(limit=3000, seconds=1)
 
 # Partner client throttling
 partner_client_burst = partner_client_throttle(limit=300_000, hours=1)
@@ -111,6 +128,12 @@ USER_CLIENT_THROTTLES = (
     user_client_burst,
     user_client_surge,
     user_client_sustained,
+)
+
+PUBLIC_CLIENT_THROTTLES = (
+    public_client_burst,
+    public_client_surge,
+    public_client_sustained,
 )
 
 PARTNER_CLIENT_THROTTLES = (

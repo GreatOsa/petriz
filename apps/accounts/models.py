@@ -71,6 +71,7 @@ class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser):
     clients = orm.relationship(
         "APIClient",
         back_populates="account",
+        foreign_keys="APIClient.account_id",
         cascade="all, delete-orphan",
         uselist=True,
         doc="API clients associated with the account",

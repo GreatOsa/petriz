@@ -9,7 +9,7 @@ from helpers.fastapi.dependencies import Dependency
 
 from apps.clients.models import APIClient
 from apps.clients.crud import retrieve_api_client
-from ..permissions import resolve_permissions, check_permissions
+from apps.clients.permissions import resolve_permissions, check_permissions
 
 
 API_SECRET_HEADER = "X-CLIENT-SECRET"
@@ -92,7 +92,7 @@ def _is_internal_client(connection: HTTPConnection, _):
     client = getattr(connection.state, "client", None)
     if not isinstance(client, APIClient):
         return False
-    return client.client_type == APIClient.ClientType.INTERNAL
+    return client.client_type.lower() == APIClient.ClientType.INTERNAL
 
 
 @Dependency
@@ -152,5 +152,5 @@ __all__ = [
     "AuthorizedAPIClient",
     "internal_api_clients_only",
     "InternalAPIClient",
-    "required_permissions",
+    "permissions_required",
 ]
