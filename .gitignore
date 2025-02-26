@@ -1,4 +1,6 @@
 **/__pycache__/
 /test_server.py
 /.env
+/.env.dev.local
+/.env.dev.live
 venv/

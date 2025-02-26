@@ -2,7 +2,7 @@
 
 This repository contains the FastAPI backend for the Petriz project.
 
-Visit the API documentation at [http://localhost:8000/docs](http://localhost:8000/docs)
+Visit the API documentation on [Postman](https://documenter.getpostman.com/view/21622102/2sAYdeNCL5)
 
 > The project structure may not follow conventional FastAPI project structures. This is because it uses pre-made utilities to speed-up and improve the development process, whilst adding some custom features.
 

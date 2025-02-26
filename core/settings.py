@@ -8,7 +8,7 @@ from helpers.generics.utils.db import get_database_url
 from helpers.fastapi import default_settings
 from helpers.fastapi.exceptions.capture import ExceptionCaptor
 
-load_dotenv(find_dotenv(".env", raise_error_if_not_found=True))
+load_dotenv(find_dotenv(".env.dev.local", raise_error_if_not_found=True))
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
