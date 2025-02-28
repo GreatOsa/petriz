@@ -5,15 +5,14 @@ from annotated_types import MaxLen, MinLen
 from helpers.fastapi.utils import timezone
 from helpers.generics.pydantic import partial
 from .models import APIClient
+from .permissions import PermissionSchema
 
 
 class APIKeyBaseSchema(pydantic.BaseModel):
     """API Key base schema."""
 
     active: pydantic.StrictBool = pydantic.Field(
-        description="Is the API Key active and usable?",
-        validation_alias="_active",
-        serialization_alias="active",
+        description="Is the API Key active and usable?"
     )
     valid_until: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         default=None, description="API Key expiration date and time"
@@ -79,6 +78,13 @@ class APIClientCreateSchema(APIClientBaseSchema):
         description="API Client type", strip=True
     )
 
+    @pydantic.field_validator("client_type", mode="before")
+    @classmethod
+    def validate_client_type(cls, value: typing.Any):
+        if isinstance(value, str):
+            return value.lower()
+        return value
+
 
 class APIClientSimpleSchema(APIClientBaseSchema):
     """API Client simple schema. For serialization purposes only."""
@@ -88,19 +94,36 @@ class APIClientSimpleSchema(APIClientBaseSchema):
         description="API Client type", strip=True
     )
 
+    @pydantic.field_validator("client_type", mode="before")
+    @classmethod
+    def validate_client_type(cls, value: typing.Any):
+        if isinstance(value, str):
+            return value.lower()
+        return value
+
+    class Config:
+        from_attributes = True
+
 
 class APIClientSchema(APIClientBaseSchema):
     """API Client schema. For serialization purposes only."""
 
     uid: pydantic.StrictStr = pydantic.Field(description="API Client UID")
     client_type: APIClient.ClientType = pydantic.Field(
-        description="API Client type", strip=True
+        description="API Client type",
+        strip=True,
     )
     api_key: typing.Optional[APIKeySchema] = pydantic.Field(
         default=None, description="API Key"
     )
     disabled: pydantic.StrictBool = pydantic.Field(
         description="Is the API Client disabled?"
+    )
+    permissions: typing.List[PermissionSchema] = pydantic.Field(
+        default_factory=list, description="API Client permissions"
+    )
+    permissions_modified_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="Latest API Client permission modification date and time"
     )
     created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         description="API Client creation date and time"
@@ -111,6 +134,23 @@ class APIClientSchema(APIClientBaseSchema):
 
     class Config:
         from_attributes = True
+
+    @pydantic.field_validator("client_type", mode="before")
+    @classmethod
+    def validate_client_type(cls, value: typing.Any):
+        if isinstance(value, str):
+            return value.lower()
+        return value
+
+    @pydantic.field_validator("permissions", mode="before")
+    @classmethod
+    def validate_permissions(cls, value: typing.Any):
+        if isinstance(value, (list, set, tuple)):
+            return [
+                PermissionSchema.from_string(p) if isinstance(p, str) else p
+                for p in value
+            ]
+        return value
 
 
 @partial
@@ -126,6 +166,8 @@ class APIClientBulkDeleteSchema(pydantic.BaseModel):
     ] = pydantic.Field(
         ...,
         description="List of API Client UIDs to delete",
+        min_length=1,
+        max_length=50,
     )
 
 

@@ -128,7 +128,7 @@ async def create_term(
     data: schemas.TermCreateSchema,
     session: DBSession,
 ):
-    dumped_data = data.model_dump()
+    dumped_data = data.model_dump(mode="json")
     topics_data: typing.Optional[typing.List[str]] = dumped_data.pop("topics", None)
     source_data: typing.Optional[typing.Dict[str, typing.Any]] = dumped_data.pop(
         "source", None
@@ -137,20 +137,39 @@ async def create_term(
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics_data)
         if not topics:
             return response.bad_request("Invalid topics provided")
+
     if source_data:
         with capture.capture(ValueError, code=400):
-            source, _ = await crud.get_or_create_term_source(session, **source_data)
+            source, created = await crud.get_or_create_term_source(
+                session, **source_data
+            )
+            term_name = dumped_data["name"]
+            if not created and await crud.check_term_exists_for_source(
+                session,
+                term_name=term_name,
+                term_source=source,
+            ):
+                return response.bad_request(
+                    f"A term with the name {term_name!r} already exists for the source {source.name!r}"
+                )
+            dumped_data["source"] = source
 
     term = await crud.create_term(
         session,
         **dumped_data,
         verified=user.is_staff,
-        source=source,
-        topics=topics or set(),
+        topics=set(topics or []),
     )
 
     await session.commit()
-    await session.refresh(term, attribute_names=["topics", "source"])
+    await session.refresh(
+        term,
+        attribute_names=[
+            "topics",
+            "source",
+            "relatives",
+        ],
+    )
     return response.created(
         f"{term.name} has been added to the glossary!",
         data=schemas.TermSchema.model_validate(term),
@@ -214,14 +233,26 @@ async def update_term(
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics_data)
         if not topics:
             return response.bad_request("Invalid topics provided")
+
     if source_data:
         name = source_data.get("name")
         uid = source_data.get("uid")
-        if name == term.source.name or uid == term.source.uid:
+        if term.source and (name == term.source.name or uid == term.source.uid):
             pass
         else:
             with capture.capture(ValueError, code=400):
-                source, _ = await crud.get_or_create_term_source(session, **source_data)
+                source, created = await crud.get_or_create_term_source(
+                    session, **source_data
+                )
+                term_name = update_data.get("name", term.name)
+                if not created and await crud.check_term_exists_for_source(
+                    session,
+                    term_name=term_name,
+                    term_source=source,
+                ):
+                    return response.bad_request(
+                        f"A term with the name {term_name!r} already exists for the source {source.name!r}"
+                    )
                 update_data["source"] = source
 
     for attr, value in update_data.items():
@@ -256,9 +287,9 @@ async def delete_term(
         return response.notfound("Term matching the given query does not exist")
 
     term.is_deleted = True
-    await session.add(term)
+    session.add(term)
     await session.commit()
-    return response.no_content(f"{term.name} has been deleted")
+    return response.success(f"{term.name} has been deleted")
 
 
 @router.get(
@@ -300,6 +331,9 @@ async def create_topic(
     session: DBSession,
     data: schemas.TopicCreateSchema,
 ):
+    if await crud.retrieve_topics_by_name_or_uid(session, [data.name]):
+        return response.bad_request("A topic with the same name already exists")
+
     topic = await crud.create_topic(session, **data.model_dump())
     await session.commit()
     return response.success(data=schemas.TopicSchema.model_validate(topic))
@@ -318,54 +352,6 @@ async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
         return response.notfound("Topic matching the given query does not exist")
 
     return response.success(data=schemas.TopicSchema.model_validate(topic))
-
-
-@router.get(
-    "/topics/{topic_uid}/terms",
-    description="Retrieve a list of available terms associated with this topic",
-    dependencies=[
-        permissions_required(
-            "topics::*::view",
-            "terms::*::list",
-        ),
-    ],
-)
-async def retrieve_topic_terms(
-    request: fastapi.Request,
-    session: DBSession,
-    topic_uid: TopicUID,
-    startswith: Startswith = None,
-    verified: Verified = True,
-    source: Source = None,
-    limit: typing.Annotated[Limit, Le(100)] = 20,
-    offset: Offset = 0,
-):
-    topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
-    if not topic:
-        return response.notfound("Topic matching the given query does not exist")
-    if source:
-        source = await crud.retrieve_term_source_by_name_or_uid(session, source)
-        if not source:
-            return response.bad_request("Invalid source provided")
-
-    terms = await crud.retrieve_topic_terms(
-        session,
-        topic=topic,
-        startswith=startswith,
-        verified=verified,
-        source=source,
-        limit=limit,
-        offset=offset,
-    )
-    response_data = [schemas.TermSchema.model_validate(term) for term in terms]
-    return response.success(
-        data=paginated_data(
-            request,
-            data=response_data,
-            limit=limit,
-            offset=offset,
-        )
-    )
 
 
 @router.patch(
@@ -415,9 +401,57 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
         return response.notfound("Topic matching the given query does not exist")
 
     topic.is_deleted = True
-    await session.add(topic)
+    session.add(topic)
     await session.commit()
-    return response.no_content(f"{topic.name} has been deleted")
+    return response.success(f"{topic.name} has been deleted")
+
+
+@router.get(
+    "/topics/{topic_uid}/terms",
+    description="Retrieve a list of available terms associated with this topic",
+    dependencies=[
+        permissions_required(
+            "topics::*::view",
+            "terms::*::list",
+        ),
+    ],
+)
+async def retrieve_topic_terms(
+    request: fastapi.Request,
+    session: DBSession,
+    topic_uid: TopicUID,
+    startswith: Startswith = None,
+    verified: Verified = True,
+    source: Source = None,
+    limit: typing.Annotated[Limit, Le(100)] = 20,
+    offset: Offset = 0,
+):
+    topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
+    if not topic:
+        return response.notfound("Topic matching the given query does not exist")
+    if source:
+        source = await crud.retrieve_term_source_by_name_or_uid(session, source)
+        if not source:
+            return response.bad_request("Invalid source provided")
+
+    terms = await crud.retrieve_topic_terms(
+        session,
+        topic=topic,
+        startswith=startswith,
+        verified=verified,
+        source=source,
+        limit=limit,
+        offset=offset,
+    )
+    response_data = [schemas.TermSchema.model_validate(term) for term in terms]
+    return response.success(
+        data=paginated_data(
+            request,
+            data=response_data,
+            limit=limit,
+            offset=offset,
+        )
+    )
 
 
 @router.get(
@@ -587,7 +621,7 @@ async def delete_term_source(
     term_source.is_deleted = True
     await session.add(term_source)
     await session.commit()
-    return response.no_content(f"{term_source.name} has been deleted")
+    return response.success(f"{term_source.name} has been deleted")
 
 
 @router.get(
@@ -656,7 +690,6 @@ async def retrieve_account_search_history(
     description="Delete the search history of the authenticated user/account",
 )
 async def delete_account_search_history(
-    request: fastapi.Request,
     session: DBSession,
     account: ActiveUser,
     # Query parameters
@@ -688,7 +721,7 @@ async def delete_account_search_history(
     )
 
     await session.commit()
-    return response.no_content(
+    return response.success(
         f"{deleted_records_count} search records have been deleted"
     )
 

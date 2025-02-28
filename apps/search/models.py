@@ -7,14 +7,15 @@ from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import TSVECTOR
 import logging
 
-logger = logging.getLogger(__name__)
-
 from helpers.fastapi.sqlalchemy import models, mixins, setup
 from helpers.fastapi.utils import timezone
 
 from api.utils import generate_uid
 from apps.accounts.models import Account
 from apps.clients.models import APIClient
+
+
+logger = logging.getLogger(__name__)
 
 
 def generate_term_uid() -> str:
@@ -223,7 +224,7 @@ class Term(mixins.TimestampMixin, models.Model):
 
     __table_args__ = (
         sa.Index("ix_terms_search_tsvector", search_tsvector, postgresql_using="gin"),
-        sa.UniqueConstraint("name", "source_id"),
+        sa.UniqueConstraint("name", "source_id"), # Term names should be unique within a source
     )
 
 

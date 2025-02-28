@@ -86,8 +86,7 @@ class APIClient(
     ######### Relationships #############
 
     account: orm.Mapped[typing.Optional[Account]] = orm.relationship(
-        back_populates="clients",
-        foreign_keys=[account_id]
+        back_populates="clients", foreign_keys=[account_id]
     )
     api_key: orm.Mapped["APIKey"] = orm.relationship(
         back_populates="client",
@@ -96,9 +95,6 @@ class APIClient(
     created_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
         foreign_keys=[created_by_id]
     )
-
-    __table_args__ = (sa.UniqueConstraint("account_id", "name"),)
-    # Client names should be unique for account
 
 
 class APIKey(
@@ -129,7 +125,6 @@ class APIKey(
         index=True,
         unique=True,
     )
-    active = sa.Column(sa.Boolean, default=True, index=True, insert_default=True)
     valid_until = sa.Column(sa.DateTime(timezone=True), nullable=True, default=None)
 
     ########## Relationships ############
@@ -141,15 +136,16 @@ class APIKey(
     __table_args__ = (sa.UniqueConstraint("client_id", "secret"),)
 
     @property
-    def _active(self):
-        return self.active and not self.client.disabled
+    def active(self) -> bool:
+        """Check if the api key is active. Depends on the client status"""
+        return not self.client.disabled
 
     @property
-    def valid(self):
-        is_active = self._active
+    def valid(self) -> bool:
+        """Check if the api key is valid. Depends on the client status and the valid_until field"""
         if not self.valid_until:
-            return is_active
-        return is_active and timezone.now() < self.valid_until
+            return self.active
+        return self.active and timezone.now() < self.valid_until
 
 
 __all__ = [

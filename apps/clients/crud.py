@@ -26,16 +26,16 @@ def generate_api_client_name() -> str:
     return "-".join(words[:4])
 
 
-async def check_api_client_name_exists(session: AsyncSession, name: str) -> bool:
+async def check_api_client_name_exists(
+    session: AsyncSession,
+    name: str,
+    account: typing.Optional[Account] = None,
+) -> bool:
     """Check if a client name exists already."""
-    exists = await session.execute(
-        sa.select(
-            sa.exists().where(
-                APIClient.name == name,
-                ~APIClient.is_deleted,
-            )
-        )
-    )
+    filters = [APIClient.name == name, ~APIClient.is_deleted]
+    if account:
+        filters.append(APIClient.account_id == account.id)
+    exists = await session.execute(sa.select(sa.exists().where(*filters)))
     return exists.scalar()
 
 
@@ -58,7 +58,7 @@ async def create_api_client(
     **kwargs,
 ):
     name = name or generate_api_client_name()
-    if await check_api_client_name_exists(session, name):
+    if await check_api_client_name_exists(session, name, account):
         raise fastapi.exceptions.ValidationException(
             errors=[
                 "Client with this name already exists!",
@@ -119,7 +119,7 @@ async def retrieve_api_clients_by_uid(
         sa.select(APIClient)
         .where(
             ~APIClient.is_deleted,
-            APIClient.id.in_(uids),
+            APIClient.uid.in_(uids),
         )
         .filter_by(**filters)
     )
@@ -132,11 +132,7 @@ async def delete_api_client(session: AsyncSession, api_client: APIClient):
     """
     api_client.is_deleted = True
     api_client.disabled = True
-    if api_client.api_key:
-        api_client.api_key.active = False
-        await session.add(api_client.api_key)
-
-    await session.add(api_client)
+    session.add(api_client)
     return None
 
 

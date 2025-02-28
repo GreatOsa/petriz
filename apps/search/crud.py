@@ -275,6 +275,30 @@ async def create_term_view(
     return term_view
 
 
+async def check_term_exists_for_source(
+    session: AsyncSession,
+    term_name: str,
+    term_source: TermSource,
+) -> bool:
+    """
+    Check if a term with the given name exists for the given source.
+
+    :param session: The database session
+    :param term_name: The name of the term to check for
+    :param term_source: The source to check for the term in
+    :return: True if the term exists, False otherwise
+    """
+    result = await session.execute(
+        sa.select(
+            sa.exists().where(
+                Term.name.ilike(term_name),
+                Term.source_id == term_source.id,
+            )
+        )
+    )
+    return result.scalar()
+
+
 async def retrieve_topic_terms(
     session: AsyncSession,
     topic: Topic,
@@ -614,7 +638,11 @@ async def retrieve_account_search_history(
         )
         .limit(limit)
         .offset(offset)
-        .options(selectinload(SearchRecord.topics.and_(~Topic.is_deleted)))
+        .options(
+            selectinload(SearchRecord.topics.and_(~Topic.is_deleted)),
+            joinedload(SearchRecord.client.and_(~APIClient.is_deleted)),
+            joinedload(SearchRecord.account.and_(~Account.is_deleted)),
+        )
         .order_by(*ordering)
     )
     return list(result.scalars().all())
@@ -672,9 +700,9 @@ async def delete_account_search_history(
             *query_filters,
         )
         .values(is_deleted=True)
-        .returning(sa.func.count(SearchRecord.id))
+        .returning(SearchRecord.id)
     )
-    return result.scalar()
+    return len(result.scalars().all())
 
 
 ###### SEARCH METRICS ######
@@ -804,7 +832,9 @@ async def get_most_searched_words(
         sa.select(
             sa.func.lower(
                 sa.func.trim(
-                    sa.func.unnest(sa.func.string_to_array(SearchRecord.query, r"\s+"))
+                    sa.func.unnest(
+                        sa.func.regexp_split_to_array(SearchRecord.query, r"\s+")
+                    )
                 )
             ).label("word_lower"),
             sa.func.count(SearchRecord.id).label("word_count"),
@@ -859,15 +889,16 @@ async def get_terms_sources(
     """
     sources_query = (
         sa.select(
-            sa.func.trim(sa.func.lower(Term.source)).label("source_lower"),
-            sa.func.count(Term.id).label("source_count"),
+            TermSource.name,
+            sa.func.count(Term.id).label("term_count"),
         )
+        .join(TermSource, Term.source_id == TermSource.id)
         .where(
             *query_filters or [],
-            Term.source != "",
-            ~Term.source.is_(sa.null()),
+            ~Term.source_id.is_(None),
+            ~TermSource.is_deleted,
         )
-        .group_by(sa.text("source_lower"))
+        .group_by(TermSource.id)
     )
     sources = await session.execute(sources_query)
     return dict(sources.all())
@@ -904,7 +935,7 @@ async def generate_account_search_metrics(
     if client:
         query_filters.append(SearchRecord.client_id == client.id)
 
-    # NOTE: Currently, deleted search record still contribute to the account search metrics.
+    # NOTE: Currently, deleted search records still contribute to the account search metrics.
     # To exclude deleted search records, add `~SearchRecord.is_deleted` to the query_filters
     account_search_metrics.search_count = await get_search_count(session, query_filters)
     account_search_metrics.most_searched_queries = await get_most_searched_queries(
@@ -942,7 +973,7 @@ async def generate_global_search_metrics(
         date_filters.append(SearchRecord.timestamp >= timestamp_gte)
 
     query_filters = [*date_filters]
-
+    # NOTE: Deleted search records always contribute to the global search metrics.
     global_search_metrics.search_count = await get_search_count(session, query_filters)
     global_search_metrics.most_searched_queries = await get_most_searched_queries(
         session, query_filters=query_filters, limit=10

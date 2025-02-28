@@ -79,9 +79,6 @@ async def backfill_client_permissions():
                 api_client.client_type.lower(), None
             )
             if permissions:
-                if api_client.permissions:
-                    permissions = set(api_client.permissions).union(permissions)
-
                 api_client.permissions = permissions
                 session.add(api_client)
                 await session.flush()

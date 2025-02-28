@@ -1,13 +1,12 @@
 from enum import Enum
 import typing
 import pydantic
-import functools
+from pydantic_core._pydantic_core import PydanticCustomError
 import re
 from typing_extensions import Doc
 
 from .models import APIClient
-from helpers.generics.utils.profiling import timeit
-from helpers.generics.utils.caching import tlru_cache, ttl_cache
+from helpers.generics.utils.caching import tlru_cache
 
 
 class PermissionScope(Enum):
@@ -65,6 +64,31 @@ class PermissionBaseSchema(pydantic.BaseModel):
         Doc("The permitted action"),
     ]
 
+    def __str__(self) -> str:
+        return permission_string_template.format(
+            resource=self.resource,
+            instance=self.instance,
+            action=self.action,
+        )
+
+    @pydantic.field_validator("resource", mode="after")
+    @classmethod
+    def validate_resource(cls, value: str) -> str:
+        if not resource_exists(value):
+            raise ValueError(f"Unknown resource type '{value}'")
+        return value
+
+    @pydantic.field_validator("action", mode="after")
+    @classmethod
+    def validate_action(cls, action: str, info: pydantic.ValidationInfo) -> str:
+        if action == "*" or "resource" not in info.data:
+            return action
+
+        resource = info.data["resource"]
+        if not get_resource_action_data(resource, action):
+            raise ValueError(f"Action '{action}' not allowed on resource '{resource}'")
+        return action
+
 
 class PermissionCreateSchema(PermissionBaseSchema):
     """Schema for creating permissions."""
@@ -86,20 +110,16 @@ class PermissionSchema(PermissionBaseSchema):
         Doc("Other permitted actions this is dependent on"),
     ] = pydantic.Field(default_factory=set)
 
-    def __str__(self) -> str:
-        return permission_string_template.format(
-            resource=self.resource,
-            instance=self.instance,
-            action=self.action,
-        )
-
     def __hash__(self):
         return hash(str(self))
 
     @classmethod
     def from_string(cls, permission: str):
         """Convert a permission string to a Permission object."""
-        return cls(**extract_permission_data(permission))
+        try:
+            return cls.model_construct(**extract_permission_data(permission))
+        except ValueError as exc:
+            raise PydanticCustomError("validation_error", str(exc))
 
     def to_regex(self) -> re.Pattern:
         """Convert a Permission object to a regex pattern."""
@@ -112,6 +132,7 @@ class PermissionSchema(PermissionBaseSchema):
         )
 
 
+@tlru_cache
 def extract_permission_data(permission: str) -> typing.Dict[str, typing.Any]:
     """Extract permission data from a permission string."""
     if not (match := permission_re.match(permission)):
@@ -132,13 +153,13 @@ def extract_permission_data(permission: str) -> typing.Dict[str, typing.Any]:
         }
 
     if not resource_exists(resource):
-        raise ValueError(f"Unknown resource type '{resource!r}'")
+        raise ValueError(f"Unknown resource type '{resource}'")
 
     requires = set()
     if action != "*":
         if not (action_data := get_resource_action_data(resource, action)):
             raise ValueError(
-                f"Action '{action!r}' not allowed on resource '{resource!r}'"
+                f"Action '{action!r}' not allowed on resource '{resource}'"
             )
 
         if action_requires := action_data.get("requires", None):
@@ -250,7 +271,13 @@ RESOURCES_PERMISSIONS = {
             "requires": {"view", "update"},
         },
     },
-    "api_clients": DEFAULT_ACTIONS,
+    "api_clients": {
+        **DEFAULT_ACTIONS,
+        "permissions_update": {
+            "description": "Update API clients permissions",
+            "requires": {"update"},
+        },
+    },
     "api_keys": {
         "view": {
             "description": "Retrieve API keys",
@@ -314,7 +341,6 @@ DEFAULT_PERMISSIONS_SETS = {
         "terms::*::view",
         "topics::*::list",
         "topics::*::view",
-        "search::*::list",
         "search_records::*::list",
         "search_records::*::list_own",
         "search_records::*::delete",
