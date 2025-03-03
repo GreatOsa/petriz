@@ -2,5 +2,5 @@
 /test_server.py
 /.env
 /.env.dev.local
-/.env.dev.live
+/.env.dev.production
 venv/

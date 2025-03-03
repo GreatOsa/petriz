@@ -1,27 +1,28 @@
-from os import name
 import typing
 from annotated_types import Le
 import fastapi
 
-from helpers.fastapi.utils import timezone
-
-from . import schemas
-from . import crud
 from helpers.fastapi.dependencies.connections import DBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
+from helpers.fastapi.response import shortcuts as response
+from helpers.fastapi.response.pagination import paginated_data
+from helpers.fastapi.exceptions import capture
+from helpers.fastapi.utils import timezone
+from helpers.fastapi.requests.query import Offset, Limit
+from . import schemas
+from . import crud
 from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
 )
+from api.dependencies.auditing import event
 from api.dependencies.authentication import authentication_required
-from helpers.fastapi.response import shortcuts as response
-from helpers.fastapi.response.pagination import paginated_data
 from apps.clients.models import APIClient
-from helpers.fastapi.requests.query import Offset, Limit
 from .permissions import (
-    DEFAULT_PERMISSIONS_SETS,
+    ALLOWED_PERMISSIONS_SETS,
     PermissionCreateSchema,
     PermissionSchema,
+    validate_permissions,
 )
 
 
@@ -38,6 +39,11 @@ router = fastapi.APIRouter(
     "",
     description="Create a new API client.",
     dependencies=[
+        event(
+            "api_client_create",
+            target="api_clients",
+            description="Create a new API client.",
+        ),
         permissions_required("api_clients::*::create"),
     ],
 )
@@ -60,7 +66,7 @@ async def create_client(
             )
 
     async with session.begin_nested():
-        permissions = DEFAULT_PERMISSIONS_SETS.get(data.client_type.lower(), [])
+        permissions = ALLOWED_PERMISSIONS_SETS.get(data.client_type.lower(), [])
         if is_user_client:
             api_client = await crud.create_api_client(
                 session,
@@ -91,6 +97,11 @@ async def create_client(
     "",
     description="Retrieve all API clients associated with the authenticated account.",
     dependencies=[
+        event(
+            "api_client_list",
+            target="api_clients",
+            description="Retrieve all API clients associated with the authenticated account.",
+        ),
         permissions_required("api_clients::*::list"),
     ],
 )
@@ -135,6 +146,12 @@ async def retrieve_clients(
     "/{client_uid}",
     description="Retrieve a single API client by UID.",
     dependencies=[
+        event(
+            "api_client_retrieve",
+            target="api_clients",
+            target_id=fastapi.Path(alias="client_uid"),
+            description="Retrieve a single API client by UID.",
+        ),
         permissions_required("api_clients::*::view"),
     ],
 )
@@ -161,6 +178,12 @@ async def retrieve_client(
     "/{client_uid}",
     description="Update an API client by UID.",
     dependencies=[
+        event(
+            "api_client_update",
+            target="api_clients",
+            target_id=fastapi.Path(alias="client_uid"),
+            description="Update an API client by UID.",
+        ),
         permissions_required("api_clients::*::update"),
     ],
 )
@@ -203,6 +226,11 @@ async def update_client(
     "/bulk-delete",
     description="Bulk delete API clients by UID.",
     dependencies=[
+        event(
+            "api_client_bulk_delete",
+            target="api_clients",
+            description="Bulk delete API clients by UID.",
+        ),
         permissions_required("api_clients::*::delete"),
     ],
 )
@@ -234,6 +262,12 @@ async def bulk_delete_clients(
     "/{client_uid}",
     description="Delete an API client by UID.",
     dependencies=[
+        event(
+            "api_client_delete",
+            target="api_clients",
+            target_id=fastapi.Path(alias="client_uid"),
+            description="Delete an API client by UID.",
+        ),
         permissions_required("api_clients::*::delete"),
     ],
 )
@@ -261,6 +295,12 @@ async def delete_client(
     "/{client_uid}/refresh-api-secret",
     description="Refresh the API secret for a client.",
     dependencies=[
+        event(
+            "api_client_secret_refresh",
+            target="api_clients",
+            target_id=fastapi.Path(alias="client_uid"),
+            description="Refresh the API secret for a client.",
+        ),
         permissions_required("api_keys::*::update"),
     ],
 )
@@ -291,6 +331,12 @@ async def refresh_client_api_secret(
     "/{client_uid}/update-permissions",
     description="Update API client permissions.",
     dependencies=[
+        event(
+            "api_client_permissions_update",
+            target="api_clients",
+            target_id=fastapi.Path(alias="client_uid"),
+            description="Update API client permissions.",
+        ),
         permissions_required("api_clients::*::permissions_update"),
     ],
 )
@@ -311,7 +357,10 @@ async def update_client_permissions(
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 
-    api_client.permissions = [str(schema) for schema in data]
+    async with capture.capture(ValueError, code=400):
+        validate_permissions(api_client, *data)
+
+    api_client.permissions = [str(perm_schema) for perm_schema in data]
     api_client.permissions_modified_at = timezone.now()
     session.add(api_client)
     await session.commit()

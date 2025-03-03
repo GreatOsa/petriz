@@ -73,10 +73,10 @@ class PermissionBaseSchema(pydantic.BaseModel):
 
     @pydantic.field_validator("resource", mode="after")
     @classmethod
-    def validate_resource(cls, value: str) -> str:
-        if not resource_exists(value):
-            raise ValueError(f"Unknown resource type '{value}'")
-        return value
+    def validate_resource(cls, resource: str) -> str:
+        if resource != "*" and not resource_exists(resource):
+            raise ValueError(f"Unknown resource type '{resource}'")
+        return resource
 
     @pydantic.field_validator("action", mode="after")
     @classmethod
@@ -239,6 +239,66 @@ def has_permissions(client: APIClient, *permissions: str) -> bool:
     return check_permissions(client, *resolve_permissions(*permissions))
 
 
+@tlru_cache
+def load_permissions(*permissions: str) -> typing.Set[PermissionSchema]:
+    """
+    Load permissions from strings.
+
+    :param permissions: The permissions to load.
+    :return: The loaded permissions as a set of `PermissionSchema` objects.
+    """
+    return {PermissionSchema.from_string(permission) for permission in permissions}
+
+
+PermStr: typing.TypeAlias = str
+
+
+def validate_permission(
+    client: APIClient,
+    permission: typing.Union[PermStr, PermissionBaseSchema],
+):
+    """
+    Validate that a permission is allowed for a client.
+
+    :param client: The client to validate.
+    :param permission: The permission to validate.
+    """
+    if isinstance(permission, PermissionBaseSchema):
+        permission = str(permission)
+
+    allowed_permission_set = ALLOWED_PERMISSIONS_SETS.get(
+        client.client_type.lower(), []
+    )
+    allowed_permission_set = load_permissions(*allowed_permission_set)
+
+    is_valid = False
+    for allowed_permission in allowed_permission_set:
+        if allowed_permission.to_regex().match(permission):
+            is_valid = True
+            break
+
+    if not is_valid:
+        raise ValueError(
+            f"Permission '{permission}' not allowed for {client.client_type.lower()!r} type clients"
+        )
+    return
+
+
+def validate_permissions(
+    client: APIClient,
+    *permissions: typing.Union[str, PermissionBaseSchema],
+):
+    """
+    Validate that the given permissions are allowed for a client.
+
+    :param client: The client to validate.
+    :param permissions: The permissions to validate.
+    """
+    for permission in permissions:
+        validate_permission(client, permission)
+    return
+
+
 DEFAULT_ACTIONS = {
     "list": {
         "description": "List all resources_PERMISSIONS",
@@ -312,7 +372,7 @@ RESOURCES_PERMISSIONS = {
 }
 
 
-DEFAULT_PERMISSIONS_SETS = {
+ALLOWED_PERMISSIONS_SETS = {
     "internal": {
         "*::*::*",  # All access
     },

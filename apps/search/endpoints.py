@@ -7,6 +7,8 @@ from helpers.fastapi.dependencies.connections import DBSession, User
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
 from helpers.fastapi.dependencies.access_control import staff_user_only, ActiveUser
+from helpers.fastapi.requests.query import Limit, Offset
+from helpers.fastapi.exceptions import capture
 from api.dependencies.authentication import (
     authentication_required,
     authenticate_connection,
@@ -15,8 +17,7 @@ from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
 )
-from helpers.fastapi.requests.query import Limit, Offset
-from helpers.fastapi.exceptions import capture
+from api.dependencies.auditing import event
 from .query import (
     Startswith,
     Verified,
@@ -39,6 +40,11 @@ TermSourceUID = typing.Annotated[str, fastapi.Path(description="Term Source UID"
 @router.get(
     "",
     dependencies=[
+        event(
+            "search",
+            target="terms",
+            description="Search terms in the glossary",
+        ),
         permissions_required(
             "terms::*::list",
             "search_records::*::create",
@@ -117,6 +123,11 @@ async def search_terms(
 @router.post(
     "/terms",
     dependencies=[
+        event(
+            "term_create",
+            target="terms",
+            description="Create a new term in the glossary",
+        ),
         internal_api_clients_only,
         permissions_required("terms::*::create"),
         authentication_required,
@@ -179,6 +190,12 @@ async def create_term(
 @router.get(
     "/terms/{term_uid}",
     dependencies=[
+        event(
+            "term_retrieve",
+            target="terms",
+            target_id=fastapi.Path(alias="term_uid"),
+            description="Retrieve a term from the glossary",
+        ),
         permissions_required("terms::*::view"),
         authenticate_connection,
     ],
@@ -205,6 +222,12 @@ async def retrieve_term(
 @router.patch(
     "/terms/{term_uid}",
     dependencies=[
+        event(
+            "term_update",
+            target="terms",
+            target_id=fastapi.Path(alias="term_uid"),
+            description="Update a term in the glossary",
+        ),
         internal_api_clients_only,
         permissions_required("terms::*::update"),
         authentication_required,
@@ -271,6 +294,12 @@ async def update_term(
 @router.delete(
     "/terms/{term_uid}",
     dependencies=[
+        event(
+            "term_delete",
+            target="terms",
+            target_id=fastapi.Path(alias="term_uid"),
+            description="Delete a term from the glossary",
+        ),
         internal_api_clients_only,
         permissions_required("terms::*::delete"),
         authentication_required,
@@ -296,6 +325,11 @@ async def delete_term(
     "/topics",
     description="Retrieve a list of available topics",
     dependencies=[
+        event(
+            "topics_list",
+            target="topics",
+            description="Retrieve a list of available topics",
+        ),
         permissions_required("topics::*::list"),
     ],
 )
@@ -321,6 +355,11 @@ async def retrieve_topics(
     "/topics",
     description="Create a new topic",
     dependencies=[
+        event(
+            "topic_create",
+            target="topics",
+            description="Create a new topic",
+        ),
         internal_api_clients_only,
         permissions_required("topics::*::create"),
         authentication_required,
@@ -343,6 +382,12 @@ async def create_topic(
     "/topics/{topic_uid}",
     description="Retrieve a topic by its UID",
     dependencies=[
+        event(
+            "topic_retrieve",
+            target="topics",
+            target_id=fastapi.Path(alias="topic_uid"),
+            description="Retrieve a topic by its UID",
+        ),
         permissions_required("topics::*::view"),
     ],
 )
@@ -357,6 +402,12 @@ async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
 @router.patch(
     "/topics/{topic_uid}",
     dependencies=[
+        event(
+            "topic_update",
+            target="topics",
+            target_id=fastapi.Path(alias="topic_uid"),
+            description="Update a topic by its UID",
+        ),
         internal_api_clients_only,
         permissions_required("topics::*::update"),
         authentication_required,
@@ -388,6 +439,12 @@ async def update_topic(
 @router.delete(
     "/topics/{topic_uid}",
     dependencies=[
+        event(
+            "topic_delete",
+            target="topics",
+            target_id=fastapi.Path(alias="topic_uid"),
+            description="Delete a topic by its UID",
+        ),
         internal_api_clients_only,
         permissions_required("topics::*::delete"),
         authentication_required,
@@ -410,6 +467,12 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
     "/topics/{topic_uid}/terms",
     description="Retrieve a list of available terms associated with this topic",
     dependencies=[
+        event(
+            "topic_terms_list",
+            target="terms",
+            target_id=fastapi.Path(alias="topic_uid"),
+            description="Retrieve a list of available terms associated with this topic",
+        ),
         permissions_required(
             "topics::*::view",
             "terms::*::list",
@@ -458,6 +521,11 @@ async def retrieve_topic_terms(
     "/sources",
     description="Retrieve a list of available term sources",
     dependencies=[
+        event(
+            "term_sources_list",
+            target="term_sources",
+            description="Retrieve a list of available term sources",
+        ),
         permissions_required("term_sources::*::list"),
     ],
 )
@@ -486,6 +554,11 @@ async def retrieve_term_sources(
     "/sources",
     description="Create a new term source",
     dependencies=[
+        event(
+            "term_source_create",
+            target="term_sources",
+            description="Create a new term source",
+        ),
         internal_api_clients_only,
         permissions_required("term_sources::*::create"),
         authentication_required,
@@ -505,6 +578,12 @@ async def create_term_source(
     "/sources/{term_source_uid}",
     description="Retrieve a term source by its UID",
     dependencies=[
+        event(
+            "term_source_retrieve",
+            target="term_sources",
+            target_id=fastapi.Path(alias="term_source_uid"),
+            description="Retrieve a term source by its UID",
+        ),
         permissions_required("term_sources::*::view"),
     ],
 )
@@ -523,6 +602,12 @@ async def retrieve_term_source(
     "/sources/{term_source_uid}/terms",
     description="Retrieve a list of available terms associated with this source",
     dependencies=[
+        event(
+            "term_source_terms_list",
+            target="terms",
+            target_id=fastapi.Path(alias="term_source_uid"),
+            description="Retrieve a list of available terms associated with this source",
+        ),
         permissions_required(
             "term_sources::*::view",
             "terms::*::list",
@@ -572,6 +657,12 @@ async def retrieve_source_terms(
 @router.patch(
     "/sources/{term_source_uid}",
     dependencies=[
+        event(
+            "term_source_update",
+            target="term_sources",
+            target_id=fastapi.Path(alias="term_source_uid"),
+            description="Update a term source by its UID",
+        ),
         internal_api_clients_only,
         permissions_required("term_sources::*::update"),
         authentication_required,
@@ -603,6 +694,12 @@ async def update_term_source(
 @router.delete(
     "/sources/{term_source_uid}",
     dependencies=[
+        event(
+            "term_source_delete",
+            target="term_sources",
+            target_id=fastapi.Path(alias="term_source_uid"),
+            description="Delete a term source by its UID",
+        ),
         internal_api_clients_only,
         permissions_required("term_sources::*::delete"),
         authentication_required,
@@ -627,6 +724,11 @@ async def delete_term_source(
 @router.get(
     "/history",
     dependencies=[
+        event(
+            "search_records_list",
+            target="search_records",
+            description="Retrieve search history",
+        ),
         permissions_required("search_records::*::list"),
         authentication_required,
     ],
@@ -684,6 +786,11 @@ async def retrieve_account_search_history(
 @router.delete(
     "/history",
     dependencies=[
+        event(
+            "search_records_delete",
+            target="search_records",
+            description="Delete search history",
+        ),
         permissions_required("search_records::*::delete"),
         authentication_required,
     ],
@@ -721,14 +828,17 @@ async def delete_account_search_history(
     )
 
     await session.commit()
-    return response.success(
-        f"{deleted_records_count} search records have been deleted"
-    )
+    return response.success(f"{deleted_records_count} search records have been deleted")
 
 
 @router.get(
     "/metrics",
     dependencies=[
+        event(
+            "account_search_metrics_retrieve",
+            target="search_records",
+            description="Retrieve account search metrics",
+        ),
         permissions_required("search_records::*::list"),
         authentication_required,
     ],
@@ -762,7 +872,13 @@ async def account_search_metrics(
     "/metrics/global",
     description="Retrieve global search metrics",
     dependencies=[
+        event(
+            "global_search_metrics_retrieve",
+            target="search_records",
+            description="Retrieve global search metrics",
+        ),
         internal_api_clients_only,
+        permissions_required("search_records::*::list"),
     ],
 )
 async def global_search_metrics(

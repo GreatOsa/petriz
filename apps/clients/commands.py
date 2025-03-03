@@ -7,7 +7,7 @@ from helpers.fastapi.utils import timezone
 from helpers.fastapi.sqlalchemy.setup import get_async_session
 from . import crud
 from .models import APIClient
-from .permissions import DEFAULT_PERMISSIONS_SETS
+from .permissions import ALLOWED_PERMISSIONS_SETS
 
 
 AVAILABLE_CLIENT_TYPES = ["internal", "public", "partner"]
@@ -43,7 +43,7 @@ async def create_client(
         api_client = await crud.create_api_client(
             session=session,
             client_type=client_type.value,
-            permissions=DEFAULT_PERMISSIONS_SETS[client_type.value],
+            permissions=ALLOWED_PERMISSIONS_SETS[client_type.value],
         )
         await session.flush()
         api_key = await crud.create_api_key(
@@ -75,7 +75,7 @@ async def backfill_client_permissions():
             session=session, permissions_modified_at=None
         )
         for api_client in api_clients:
-            permissions = DEFAULT_PERMISSIONS_SETS.get(
+            permissions = ALLOWED_PERMISSIONS_SETS.get(
                 api_client.client_type.lower(), None
             )
             if permissions:

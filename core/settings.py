@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.tokens",
     "apps.clients",
     "apps.search",
+    "apps.audits",
 ]
 
 
@@ -88,6 +89,8 @@ TIMEZONE = "UTC"
 AUTH_USER_MODEL = "accounts.Account"
 
 MIDDLEWARE = [
+    "helpers.fastapi.middlewares.core.RequestProcessTimeMiddleware",
+    "api.middlewares.auditing.RequestEventLogMiddleware",
     *default_settings.MIDDLEWARE,
     "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
 ]
@@ -130,3 +133,9 @@ RESPONSE_FORMATTER = {
 REDIS_LOCATION = os.getenv("REDIS_LOCATION")
 
 AUTH_TOKEN_VALIDITY_PERIOD = datetime.timedelta(days=30)
+
+SENSITIVE_HEADERS = {
+    "x-client-id",
+    "x-client-secret",
+    *default_settings.SENSITIVE_HEADERS,
+}
