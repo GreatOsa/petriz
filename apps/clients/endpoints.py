@@ -8,9 +8,7 @@ from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
 from helpers.fastapi.exceptions import capture
 from helpers.fastapi.utils import timezone
-from helpers.fastapi.requests.query import Offset, Limit
-from . import schemas
-from . import crud
+from helpers.fastapi.requests.query import Offset, Limit, clean_params
 from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
@@ -18,6 +16,8 @@ from api.dependencies.authorization import (
 from api.dependencies.auditing import event
 from api.dependencies.authentication import authentication_required
 from apps.clients.models import APIClient
+from . import schemas, crud
+from .query import APIClientOrdering
 from .permissions import (
     ALLOWED_PERMISSIONS_SETS,
     PermissionCreateSchema,
@@ -28,6 +28,10 @@ from .permissions import (
 
 router = fastapi.APIRouter(
     dependencies=[
+        event(
+            "clients_access",
+            description="Access clients endpoints.",
+        ),
         internal_api_clients_only,
         permissions_required("api_clients::*::*"),
         authentication_required,
@@ -109,6 +113,7 @@ async def retrieve_clients(
     request: fastapi.Request,
     session: DBSession,
     account: ActiveUser,
+    ordering: APIClientOrdering,
     client_type: typing.Annotated[
         typing.Optional[APIClient.ClientType],
         fastapi.Query(description="API client type"),
@@ -128,7 +133,8 @@ async def retrieve_clients(
             )
     filters["client_type"] = client_type
 
-    api_clients = await crud.retrieve_api_clients(session, **filters)
+    params = clean_params(ordering=ordering)
+    api_clients = await crud.retrieve_api_clients(session, **params, **filters)
     response_data = [
         schemas.APIClientSchema.model_validate(client) for client in api_clients
     ]
@@ -149,7 +155,7 @@ async def retrieve_clients(
         event(
             "api_client_retrieve",
             target="api_clients",
-            target_id=fastapi.Path(alias="client_uid"),
+            target_uid=fastapi.Path(alias="client_uid", alias_priority=1),
             description="Retrieve a single API client by UID.",
         ),
         permissions_required("api_clients::*::view"),
@@ -181,7 +187,7 @@ async def retrieve_client(
         event(
             "api_client_update",
             target="api_clients",
-            target_id=fastapi.Path(alias="client_uid"),
+            target_uid=fastapi.Path(alias="client_uid", alias_priority=1),
             description="Update an API client by UID.",
         ),
         permissions_required("api_clients::*::update"),
@@ -265,7 +271,7 @@ async def bulk_delete_clients(
         event(
             "api_client_delete",
             target="api_clients",
-            target_id=fastapi.Path(alias="client_uid"),
+            target_uid=fastapi.Path(alias="client_uid", alias_priority=1),
             description="Delete an API client by UID.",
         ),
         permissions_required("api_clients::*::delete"),
@@ -298,7 +304,7 @@ async def delete_client(
         event(
             "api_client_secret_refresh",
             target="api_clients",
-            target_id=fastapi.Path(alias="client_uid"),
+            target_uid=fastapi.Path(alias="client_uid", alias_priority=1),
             description="Refresh the API secret for a client.",
         ),
         permissions_required("api_keys::*::update"),
@@ -334,7 +340,7 @@ async def refresh_client_api_secret(
         event(
             "api_client_permissions_update",
             target="api_clients",
-            target_id=fastapi.Path(alias="client_uid"),
+            target_uid=fastapi.Path(alias="client_uid", alias_priority=1),
             description="Update API client permissions.",
         ),
         permissions_required("api_clients::*::permissions_update"),

@@ -6,7 +6,10 @@ All setup code should be defined in the `configure` function
 
 import os
 from contextlib import asynccontextmanager
+import redis.asyncio as async_pyredis
 import fastapi
+from fastapi_cache import FastAPICache
+from fastapi_cache.backends.redis import RedisBackend
 
 from helpers.fastapi.config import settings, SETTINGS_ENV_VARIABLE
 
@@ -48,22 +51,39 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.apps import configure_apps
     from helpers.fastapi.requests import throttling
     from apps.search.models import execute_search_ddls
+    from api.caching import ORJsonCoder, request_key_builder
 
     try:
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
         await configure_apps()
-        
+
         # Any setup code that needs to run before the application starts goes here
         execute_search_ddls()
+
+        persist_redis_data = (
+            app.debug is False
+        )  # Whether to clear data stored in redis in debug mode, on application exit.
+        redis = async_pyredis.from_url(settings.REDIS_LOCATION, decode_responses=False)
+        FastAPICache.init(
+            RedisBackend(redis),
+            prefix="petriz-api-cache",
+            coder=ORJsonCoder,
+            key_builder=request_key_builder,
+            cache_status_header="X-Cache-Status",
+            expire=60 * 60,  # 1 hour
+        )
+
         async with throttling.configure(
-            persistent=app.debug
-            is False,  # Disables persistent rate limiting in debug mode
-            redis=settings.REDIS_LOCATION,
+            persistent=persist_redis_data,
+            redis=redis,
+            prefix="petriz-api-throttle",
         ):
             yield
+
     finally:
-        pass
         # Perform additional cleanup here
+        if persist_redis_data is False and FastAPICache._backend:
+            await FastAPICache.clear()
 
 
 def main(config: str = "APP") -> fastapi.FastAPI:

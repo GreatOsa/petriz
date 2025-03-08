@@ -6,6 +6,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
+from helpers.fastapi.requests.query import OrderingExpressions
+
 from .models import (
     APIClient,
     APIKey,
@@ -100,16 +102,28 @@ async def retrieve_api_clients(
     *,
     limit: int = 100,
     offset: int = 0,
+    ordering: OrderingExpressions[APIClient] = APIClient.DEFAULT_ORDERING,
     **filters,
 ):
+    """
+    Retrieve all API clients that match the given filter from the DB.
+    Eagerly load the associated api key and account (if any).
+
+    :param limit: The maximum number of clients to retrieve.
+    :param offset: The number of clients to skip.
+    :param ordering: The ordering to use when retrieving clients.
+    :param filters: The filters to apply when retrieving clients
+    :return: A list of API clients that match the given filters.
+    """
     result = await session.execute(
         sa.select(APIClient)
         .filter_by(is_deleted=False, **filters)
         .limit(limit)
         .offset(offset)
         .options(joinedload(APIClient.api_key), joinedload(APIClient.account))
+        .order_by(*ordering)
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 async def retrieve_api_clients_by_uid(
@@ -123,7 +137,7 @@ async def retrieve_api_clients_by_uid(
         )
         .filter_by(**filters)
     )
-    return result.scalars().all()
+    return list(result.scalars().all())
 
 
 async def delete_api_client(session: AsyncSession, api_client: APIClient):

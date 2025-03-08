@@ -369,6 +369,12 @@ RESOURCES_PERMISSIONS = {
             "requires": None,
         },
     },
+    "audit_log_entries": {
+        "list": {
+            "description": "List all audit log entries",
+            "requires": None,
+        },
+    },
 }
 
 

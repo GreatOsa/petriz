@@ -6,13 +6,9 @@ from helpers.fastapi.sqlalchemy.setup import get_async_session
 from helpers.fastapi.config import settings
 from apps.accounts.models import Account
 from apps.clients.models import APIClient
+from apps.audits.schemas import AuditLogEntryCreateSchema
 from apps.audits.models import ActionStatus
 from apps.audits.crud import create_audit_log_entry
-
-
-def get_source_from_request(request: fastapi.Request) -> str:
-    """Get the source of the request. User Agent + IP Address."""
-    return f"{request.headers.get('User-Agent')} - {get_ip_address(request)}"
 
 
 def get_api_client_from_request(request: fastapi.Request) -> typing.Optional[APIClient]:
@@ -46,7 +42,8 @@ async def RequestEventLogMiddleware(
     call_next,
 ):
     """Log an event."""
-    source = get_source_from_request(request)
+    user_agent = request.headers.get("user-agent", None)
+    ip_address = get_ip_address(request)
     metadata = {
         "request": {
             "method": request.method,
@@ -75,12 +72,12 @@ async def RequestEventLogMiddleware(
     if isinstance(request_event, dict):
         event = request_event["event"]
         target = request_event.get("target", None)
-        target_id = request_event.get("target_id", None)
+        target_uid = request_event.get("target_uid", None)
         description = request_event.get("description", None)
     else:
         event = request.method
         target = str(request.url)
-        target_id = None
+        target_uid = None
         description = f"{request.method} request to {request.url}"
 
     api_client = get_api_client_from_request(request)
@@ -109,19 +106,23 @@ async def RequestEventLogMiddleware(
     # Also attempting to commit a closed session will raise an error.
     # Instead, create a new session and commit the changes.
     async with get_async_session() as session:
+        schema = AuditLogEntryCreateSchema(
+            event=event,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            actor_uid=api_client.uid if api_client else None,
+            actor_type="api_client" if api_client else None,
+            account_email=account.email if account else None,
+            account_uid=account.uid if account else None,
+            target=target,
+            target_uid=str(target_uid),
+            description=description,
+            status=status,
+            data=metadata,
+        )
         await create_audit_log_entry(
             session,
-            event=str(event),
-            description=description,
-            source=str(source),
-            account_email=str(account.email) if account else None,
-            account_id=str(account.id) if account else None,
-            target=str(target) if target else None,
-            target_id=str(target_id) if target_id else None,
-            actor_id=str(api_client.id) if api_client else None,
-            actor_type="api_client" if api_client else None,
-            status=status,
-            metadata=metadata,
+            **schema.model_dump(),
         )
         await session.commit()
 

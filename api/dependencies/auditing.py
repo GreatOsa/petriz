@@ -7,7 +7,7 @@ def event(
     event: str,
     /,
     target: typing.Optional[typing.Any] = None,
-    target_id: typing.Optional[typing.Any] = None,
+    target_uid: typing.Optional[typing.Any] = None,
     description: typing.Optional[str] = None,
 ) -> fastapi.params.Depends:
     """
@@ -34,7 +34,7 @@ def event(
             event(
                 "user_retrieve", 
                 target="user", 
-                target_id=fastapi.Path(alias="user_id")
+                target_uid=fastapi.Path(alias="user_id")
             )
         ]
     )
@@ -46,7 +46,7 @@ def event(
     :param target: The target of the event. E.g. user, post, comment, etc.
         This can also be a another fastapi dependency, path, query, etc. 
         that resolves to the target.
-    :param target_id: The ID of the target. This can also be another fastapi 
+    :param target_uid: The unique ID of the target. This can also be another fastapi 
         dependency, path, query, etc. that resolves to the target ID.
     :param description: A description of the event or action.
     :return: A fastapi dependency that attaches the event data to the request state.
@@ -55,12 +55,12 @@ def event(
     async def _dependency(
         request: fastapi.Request,
         target: typing.Optional[typing.Any] = target,
-        target_id: typing.Optional[typing.Any] = target_id,
+        target_uid: typing.Optional[typing.Any] = target_uid,
     ) -> fastapi.Request:
         data = {
             "event": event,
             "target": target,
-            "target_id": target_id,
+            "target_uid": target_uid,
             "description": description,
         }
         setattr(request.state, "event", data)

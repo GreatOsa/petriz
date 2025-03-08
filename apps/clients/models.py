@@ -96,6 +96,10 @@ class APIClient(
         foreign_keys=[created_by_id]
     )
 
+    DEFAULT_ORDERING = [
+        sa.desc("created_at"),
+    ]
+
 
 class APIKey(
     mixins.TimestampMixin,

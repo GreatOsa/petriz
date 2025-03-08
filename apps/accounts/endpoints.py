@@ -15,7 +15,14 @@ from api.dependencies.auditing import event
 from apps.tokens import auth_tokens, totps
 
 
-router = fastapi.APIRouter()
+router = fastapi.APIRouter(
+    dependencies=[
+        event(
+            "accounts_access",
+            description="Access accounts endpoints.",
+        ),
+    ]
+)
 
 
 ########################

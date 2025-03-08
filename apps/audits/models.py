@@ -1,6 +1,7 @@
 import typing
 import enum
 import uuid
+from ipaddress import IPv4Address, IPv6Address
 from annotated_types import MaxLen
 import sqlalchemy as sa
 import sqlalchemy_utils as sa_utils
@@ -39,12 +40,19 @@ class AuditLogEntry(
         index=True,
         doc="The event or action that occurred. E.g. user_login, user_logout, GET, POST, etc.",
     )
-    source: orm.Mapped[str] = orm.mapped_column(
+    user_agent: orm.Mapped[str] = orm.mapped_column(
         sa.String(255),
+        nullable=True,
         index=True,
-        doc="The source of the event, User Agent + IP Address.",
+        doc="The user agent of the source of the event.",
     )
-    actor_id: orm.Mapped[str] = orm.mapped_column(
+    ip_address: orm.Mapped[typing.Union[IPv4Address, IPv6Address]] = orm.mapped_column(
+        sa_utils.IPAddressType,
+        nullable=True,
+        index=True,
+        doc="The IP address of the source of the event.",
+    )
+    actor_uid: orm.Mapped[str] = orm.mapped_column(
         sa.String(50),
         index=True,
         nullable=True,
@@ -62,8 +70,8 @@ class AuditLogEntry(
         nullable=True,
         doc="Email of the account associated with the action.",
     )
-    account_id: orm.Mapped[uuid.UUID] = orm.mapped_column(
-        sa.UUID,
+    account_uid: orm.Mapped[str] = orm.mapped_column(
+        sa.String(50),
         nullable=True,
         index=True,
         doc="Unique ID of account associated with the action.",
@@ -74,7 +82,7 @@ class AuditLogEntry(
         nullable=True,
         doc="A name for the target of the action. Can be a resource URL, etc.",
     )
-    target_id: orm.Mapped[str] = orm.mapped_column(
+    target_uid: orm.Mapped[str] = orm.mapped_column(
         sa.String(50), index=True, nullable=True, doc="Unique ID of the target, if any."
     )
     description: orm.Mapped[str] = orm.mapped_column(
@@ -92,6 +100,10 @@ class AuditLogEntry(
         sa.Index("ix_audit_logentry_created_at", "created_at"),
         sa.Index("ix_audit_logentry_updated_at", "updated_at"),
     )
+
+    DEFAULT_ORDERING = [
+        sa.desc("created_at"),
+    ]
 
 
 def raise_not_updatable(*args, **kwargs):

@@ -2,12 +2,13 @@ from annotated_types import MaxLen, Le
 import fastapi
 import typing
 from typing_extensions import Doc
+from fastapi_cache.decorator import cache
 
 from helpers.fastapi.dependencies.connections import DBSession, User
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
 from helpers.fastapi.dependencies.access_control import staff_user_only, ActiveUser
-from helpers.fastapi.requests.query import Limit, Offset
+from helpers.fastapi.requests.query import Limit, Offset, clean_params
 from helpers.fastapi.exceptions import capture
 from api.dependencies.authentication import (
     authentication_required,
@@ -26,15 +27,27 @@ from .query import (
     TimestampGte,
     TimestampLte,
     Source,
+    TermsOrdering,
 )
 from . import schemas, crud
 
 
-router = fastapi.APIRouter()
+router = fastapi.APIRouter(
+    dependencies=[
+        event(
+            "search_access",
+            description="Access search endpoints",
+        ),
+    ]
+)
 
-TopicUID = typing.Annotated[str, fastapi.Path(description="Topic UID")]
-TermUID = typing.Annotated[str, fastapi.Path(description="Term UID")]
-TermSourceUID = typing.Annotated[str, fastapi.Path(description="Term Source UID")]
+TopicUID: typing.TypeAlias = typing.Annotated[
+    str, fastapi.Path(description="Topic UID")
+]
+TermUID: typing.TypeAlias = typing.Annotated[str, fastapi.Path(description="Term UID")]
+TermSourceUID: typing.TypeAlias = typing.Annotated[
+    str, fastapi.Path(description="Term Source UID")
+]
 
 
 @router.get(
@@ -53,28 +66,43 @@ TermSourceUID = typing.Annotated[str, fastapi.Path(description="Term Source UID"
     ],
     description="Search terms in the glossary.",
 )
+@cache(namespace="search")
 async def search_terms(
     request: fastapi.Request,
     session: DBSession,
     user: User,
-    # Query parameters
-    query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
+    query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
         MaxLen(10),
         Doc("What topics should the search be constrained to?"),
-    ] = None,
-    startswith: Startswith = None,
-    verified: Verified = True,
-    source: Source = None,
+    ],
+    startswith: Startswith,
+    source: Source,
+    verified: Verified,
+    ordering: TermsOrdering,
     limit: typing.Annotated[Limit, Le(100)] = 20,
     offset: Offset = 0,
 ):
     account = user if user.is_authenticated else None
     client = getattr(request.state, "client", None)
+    params = clean_params(
+        startswith=startswith,
+        verified=verified,
+        limit=limit,
+        offset=offset,
+        ordering=ordering,
+    )
+    metadata = params.copy()
+    metadata.pop("ordering", None)
+    query = query or None
+    topics = topics or None
+    source = source or None
+
     if topics:
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
     if source:
+        metadata["source"] = source
         source = await crud.retrieve_term_source_by_name_or_uid(session, source)
         if not source:
             return response.bad_request("Invalid source provided")
@@ -85,27 +113,17 @@ async def search_terms(
         topics=topics,
         account=account,
         client=client,
-        metadata={
-            "verified": verified,
-            "startswith": startswith,
-            "source": schemas.TermSourceSchema.model_validate(source).model_dump(
-                mode="json"
-            )
-            if source
-            else None,
-            "limit": limit,
-            "offset": offset,
-        },
+        metadata=metadata,
     ):
+        if "verified" not in params:
+            params["verified"] = True
+
         result = await crud.search_terms(
             session,
             query=query,
             topics=topics,
-            startswith=startswith,
             source=source,
-            verified=verified,
-            limit=limit,
-            offset=offset,
+            **params,
         )
         response_data = [schemas.TermSchema.model_validate(term) for term in result]
 
@@ -193,7 +211,7 @@ async def create_term(
         event(
             "term_retrieve",
             target="terms",
-            target_id=fastapi.Path(alias="term_uid"),
+            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
             description="Retrieve a term from the glossary",
         ),
         permissions_required("terms::*::view"),
@@ -201,6 +219,7 @@ async def create_term(
     ],
     description="Retrieve a glossary term by its UID",
 )
+@cache(namespace="terms_retrieve")
 async def retrieve_term(
     session: DBSession,
     user: User,
@@ -225,7 +244,7 @@ async def retrieve_term(
         event(
             "term_update",
             target="terms",
-            target_id=fastapi.Path(alias="term_uid"),
+            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
             description="Update a term in the glossary",
         ),
         internal_api_clients_only,
@@ -297,7 +316,7 @@ async def update_term(
         event(
             "term_delete",
             target="terms",
-            target_id=fastapi.Path(alias="term_uid"),
+            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
             description="Delete a term from the glossary",
         ),
         internal_api_clients_only,
@@ -333,6 +352,7 @@ async def delete_term(
         permissions_required("topics::*::list"),
     ],
 )
+@cache(namespace="topics_list")
 async def retrieve_topics(
     request: fastapi.Request,
     session: DBSession,
@@ -385,12 +405,13 @@ async def create_topic(
         event(
             "topic_retrieve",
             target="topics",
-            target_id=fastapi.Path(alias="topic_uid"),
+            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
             description="Retrieve a topic by its UID",
         ),
         permissions_required("topics::*::view"),
     ],
 )
+@cache(namespace="topics_retrieve")
 async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
     topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
     if not topic:
@@ -405,7 +426,7 @@ async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
         event(
             "topic_update",
             target="topics",
-            target_id=fastapi.Path(alias="topic_uid"),
+            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
             description="Update a topic by its UID",
         ),
         internal_api_clients_only,
@@ -442,7 +463,7 @@ async def update_topic(
         event(
             "topic_delete",
             target="topics",
-            target_id=fastapi.Path(alias="topic_uid"),
+            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
             description="Delete a topic by its UID",
         ),
         internal_api_clients_only,
@@ -470,7 +491,7 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
         event(
             "topic_terms_list",
             target="terms",
-            target_id=fastapi.Path(alias="topic_uid"),
+            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
             description="Retrieve a list of available terms associated with this topic",
         ),
         permissions_required(
@@ -479,32 +500,39 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
         ),
     ],
 )
+@cache(namespace="topic_terms_list")
 async def retrieve_topic_terms(
     request: fastapi.Request,
     session: DBSession,
     topic_uid: TopicUID,
-    startswith: Startswith = None,
-    verified: Verified = True,
-    source: Source = None,
+    startswith: Startswith,
+    ordering: TermsOrdering,
+    verified: typing.Optional[Verified] = True,
+    source: typing.Optional[Source] = None,
     limit: typing.Annotated[Limit, Le(100)] = 20,
     offset: Offset = 0,
 ):
     topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
     if not topic:
         return response.notfound("Topic matching the given query does not exist")
+
+    params = clean_params(
+        startswith=startswith,
+        verified=verified,
+        limit=limit,
+        offset=offset,
+        ordering=ordering,
+    )
     if source:
         source = await crud.retrieve_term_source_by_name_or_uid(session, source)
         if not source:
             return response.bad_request("Invalid source provided")
+        params["source"] = source
 
     terms = await crud.retrieve_topic_terms(
         session,
         topic=topic,
-        startswith=startswith,
-        verified=verified,
-        source=source,
-        limit=limit,
-        offset=offset,
+        **params,
     )
     response_data = [schemas.TermSchema.model_validate(term) for term in terms]
     return response.success(
@@ -529,6 +557,7 @@ async def retrieve_topic_terms(
         permissions_required("term_sources::*::list"),
     ],
 )
+@cache(namespace="term_sources_list")
 async def retrieve_term_sources(
     request: fastapi.Request,
     session: DBSession,
@@ -581,12 +610,13 @@ async def create_term_source(
         event(
             "term_source_retrieve",
             target="term_sources",
-            target_id=fastapi.Path(alias="term_source_uid"),
+            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
             description="Retrieve a term source by its UID",
         ),
         permissions_required("term_sources::*::view"),
     ],
 )
+@cache(namespace="term_source_retrieve")
 async def retrieve_term_source(
     session: DBSession,
     term_source_uid: TermSourceUID,
@@ -605,7 +635,7 @@ async def retrieve_term_source(
         event(
             "term_source_terms_list",
             target="terms",
-            target_id=fastapi.Path(alias="term_source_uid"),
+            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
             description="Retrieve a list of available terms associated with this source",
         ),
         permissions_required(
@@ -614,14 +644,16 @@ async def retrieve_term_source(
         ),
     ],
 )
+@cache(namespace="term_source_terms_list")
 async def retrieve_source_terms(
     request: fastapi.Request,
     session: DBSession,
     term_source_uid: TermSourceUID,
-    startswith: Startswith = None,
-    verified: Verified = True,
+    startswith: Startswith,
+    verified: Verified,
+    ordering: TermsOrdering,
     topics: typing.Annotated[
-        Topics,
+        typing.Optional[Topics],
         MaxLen(10),
         Doc("What topics should the terms fetched be related to?"),
     ] = None,
@@ -631,17 +663,22 @@ async def retrieve_source_terms(
     term_source = await crud.retrieve_term_source_by_uid(session, uid=term_source_uid)
     if not term_source:
         return response.notfound("Term source matching the given query does not exist")
+
+    params = clean_params(
+        startswith=startswith,
+        verified=verified,
+        limit=limit,
+        offset=offset,
+        ordering=ordering,
+    )
     if topics:
         topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
+        params["topics"] = topics
 
     terms = await crud.retrieve_term_source_terms(
         session,
         term_source=term_source,
-        startswith=startswith,
-        verified=verified,
-        topics=topics,
-        limit=limit,
-        offset=offset,
+        **params,
     )
     response_data = [schemas.TermSchema.model_validate(term) for term in terms]
     return response.success(
@@ -660,7 +697,7 @@ async def retrieve_source_terms(
         event(
             "term_source_update",
             target="term_sources",
-            target_id=fastapi.Path(alias="term_source_uid"),
+            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
             description="Update a term source by its UID",
         ),
         internal_api_clients_only,
@@ -697,7 +734,7 @@ async def update_term_source(
         event(
             "term_source_delete",
             target="term_sources",
-            target_id=fastapi.Path(alias="term_source_uid"),
+            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
             description="Delete a term source by its UID",
         ),
         internal_api_clients_only,
@@ -738,35 +775,39 @@ async def retrieve_account_search_history(
     request: fastapi.Request,
     session: DBSession,
     account: ActiveUser,
-    query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
+    query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
         MaxLen(10),
         Doc("What topics should the search history retrieval be constrained to?"),
-    ] = None,
+    ],
     timestamp_gte: typing.Annotated[
         TimestampGte,
         Doc("Only include search records that were created after this timestamp"),
-    ] = None,
+    ],
     timestamp_lte: typing.Annotated[
         TimestampLte,
         Doc("Only include search records that were created before this timestamp"),
-    ] = None,
+    ],
     limit: typing.Annotated[Limit, Le(100)] = 50,
     offset: Offset = 0,
 ):
-    if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
-
-    search_history = await crud.retrieve_account_search_history(
-        session,
-        account=account,
+    params = clean_params(
         query=query,
         topics=topics,
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
         limit=limit,
         offset=offset,
+    )
+    if topics:
+        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
+        params["topics"] = topics
+
+    search_history = await crud.retrieve_account_search_history(
+        session,
+        account=account,
+        **params,
     )
 
     response_data = [
@@ -800,31 +841,35 @@ async def delete_account_search_history(
     session: DBSession,
     account: ActiveUser,
     # Query parameters
-    query: typing.Annotated[SearchQuery, MaxLen(100)] = None,
+    query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
         MaxLen(10),
         Doc("What topics should the search history retrieval be constrained to?"),
-    ] = None,
+    ],
     timestamp_gte: typing.Annotated[
         TimestampGte,
         Doc("Only include search records that were created after this timestamp"),
-    ] = None,
+    ],
     timestamp_lte: typing.Annotated[
         TimestampLte,
         Doc("Only include search records that were created before this timestamp"),
-    ] = None,
+    ],
 ):
-    if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
-
-    deleted_records_count = await crud.delete_account_search_history(
-        session,
-        account=account,
+    params = clean_params(
         query=query,
         topics=topics,
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
+    )
+    if topics:
+        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
+        params["topics"] = topics
+
+    deleted_records_count = await crud.delete_account_search_history(
+        session,
+        account=account,
+        **params,
     )
 
     await session.commit()
@@ -858,12 +903,15 @@ async def account_search_metrics(
     ],
 ):
     client = getattr(request.state, "client", None)
+    params = clean_params(
+        timestamp_gte=timestamp_gte,
+        timestamp_lte=timestamp_lte,
+    )
     search_metrics = await crud.generate_account_search_metrics(
         session,
         account=account,
-        client=client,
-        timestamp_gte=timestamp_gte,
-        timestamp_lte=timestamp_lte,
+        # client=client,
+        **params,
     )
     return response.success(data=search_metrics)
 
@@ -892,9 +940,12 @@ async def global_search_metrics(
         Doc("Only include search records that were created before this timestamp"),
     ],
 ):
-    search_metrics = await crud.generate_global_search_metrics(
-        session,
+    params = clean_params(
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
+    )
+    search_metrics = await crud.generate_global_search_metrics(
+        session,
+        **params,
     )
     return response.success(data=search_metrics)

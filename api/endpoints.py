@@ -3,7 +3,7 @@ import fastapi
 from helpers.fastapi.routing import path
 from helpers.fastapi import response
 
-from .dependencies import authorization, throttles
+from .dependencies import authorization, throttling
 
 
 router = fastapi.APIRouter()
@@ -13,7 +13,7 @@ router = fastapi.APIRouter()
     "",
     status_code=200,
     dependencies=[
-        *throttles.ANONYMOUS_CLIENT_THROTTLES,
+        *throttling.ANONYMOUS_CLIENT_THROTTLES,
     ],
 )
 async def health_check(request: fastapi.Request):
@@ -22,10 +22,10 @@ async def health_check(request: fastapi.Request):
 
 DEFAULT_CLIENT_DEPENDENCIES = (
     authorization.authorized_api_client_only,
-    *throttles.INTERNAL_CLIENT_THROTTLES,
-    *throttles.USER_CLIENT_THROTTLES,
-    *throttles.PUBLIC_CLIENT_THROTTLES,
-    *throttles.PARTNER_CLIENT_THROTTLES,
+    *throttling.INTERNAL_CLIENT_THROTTLES,
+    *throttling.USER_CLIENT_THROTTLES,
+    *throttling.PUBLIC_CLIENT_THROTTLES,
+    *throttling.PARTNER_CLIENT_THROTTLES,
 )
 
 
@@ -44,5 +44,11 @@ router.include_router(
     path("apps.search.endpoints"),
     prefix="/search",
     tags=["search"],
+    dependencies=DEFAULT_CLIENT_DEPENDENCIES,
+)
+router.include_router(
+    path("apps.audits.endpoints"),
+    prefix="/audits",
+    tags=["audits"],
     dependencies=DEFAULT_CLIENT_DEPENDENCIES,
 )
