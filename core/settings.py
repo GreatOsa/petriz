@@ -139,3 +139,5 @@ SENSITIVE_HEADERS = {
     "x-client-secret",
     *default_settings.SENSITIVE_HEADERS,
 }
+
+LOG_REQUEST_EVENTS = os.getenv("LOG_REQUEST_EVENTS", False) # Enable/disable request event logging
