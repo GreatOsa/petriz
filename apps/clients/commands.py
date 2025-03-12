@@ -1,9 +1,10 @@
-import sys
 import typing
+import click
 import datetime
-from core import commands
 
+from helpers.fastapi import commands
 from helpers.fastapi.utils import timezone
+from helpers.fastapi.utils.sync import async_to_sync
 from helpers.fastapi.sqlalchemy.setup import get_async_session
 from . import crud
 from .models import APIClient
@@ -13,31 +14,37 @@ from .permissions import ALLOWED_PERMISSIONS_SETS
 AVAILABLE_CLIENT_TYPES = ["internal", "public", "partner"]
 
 
-@commands.register
+def _client_type(ctx, param, client_type) -> APIClient.ClientType:
+    """Convert client type string to APIClient.ClientType"""
+    return APIClient.ClientType(client_type)
+
+
+@commands.register("create_client")
+@click.option(
+    "--client-type",
+    "-t",
+    required=True,
+    type=click.Choice(AVAILABLE_CLIENT_TYPES, case_sensitive=False),
+    callback=_client_type,
+    help="The type of API Client to create",
+)
+@click.option(
+    "--secret-validity-seconds",
+    "-s",
+    type=float,
+    help="The client secret validity period in seconds",
+)
+@async_to_sync
 async def create_client(
-    client_type: str,
-    secret_validity_period: typing.Optional[int] = None,
+    client_type: APIClient.ClientType,
+    secret_validity_seconds: typing.Optional[float] = None,
 ):
-    """
-    Create an API Client with the specified client type.
-
-    :param client_type: The client type. Available options: internal, public, partner.
-    :param secret_validity_period: The client secret validity period in seconds.
-    """
-    client_type = client_type.strip().lower()
-    if client_type not in AVAILABLE_CLIENT_TYPES:
-        sys.stdout.write(
-            f"Invalid client type. Available options: {', '.join(AVAILABLE_CLIENT_TYPES)}\n"
-        )
-        return
-
-    client_type = APIClient.ClientType(client_type)
-    if secret_validity_period:
-        valid_until = timezone.now() + datetime.timedelta(
-            seconds=float(secret_validity_period)
-        )
-    else:
-        valid_until = None
+    """Create an API Client with the specified client type."""
+    valid_until = (
+        timezone.now() + datetime.timedelta(seconds=secret_validity_seconds)
+        if secret_validity_seconds
+        else None
+    )
 
     async with get_async_session() as session:
         api_client = await crud.create_api_client(
@@ -51,26 +58,38 @@ async def create_client(
         )
         await session.commit()
 
-    sys.stdout.write("############################################\n")
-    sys.stdout.write(f"{client_type.value.upper()} API Client ID: {api_client.uid}\n")
-    sys.stdout.write(
-        f"{client_type.value.upper()} API Client Secret: {api_key.secret}\n"
+    click.echo(
+        click.style(
+            "##############################################################", bold=True, fg="white"
+        )
     )
-    sys.stdout.write("############################################\n")
-    sys.stdout.write("\n")
+    click.echo(
+        click.style(
+            f"{client_type.value.upper()} API Client ID: {api_client.uid}",
+            bold=True,
+            fg="green",
+        )
+    )
+    click.echo(
+        click.style(
+            f"{client_type.value.upper()} API Client Secret: {api_key.secret}",
+            bold=True,
+            fg="green",
+        )
+    )
+    click.echo(
+        click.style(
+            "##############################################################", bold=True, fg="white"
+        )
+    )
 
 
-@commands.register
+@commands.register("backfill_client_permissions")
+@async_to_sync
 async def backfill_client_permissions():
-    """
-    Backfill permissions for API Clients whose permissions have not been modified yet.
-
-    This command is useful when new permissions are added to the system and we need to
-    update the permissions for all API Clients that have not been modified yet.
-    """
+    """Backfill permissions for API Clients whose permissions have not been modified."""
     count = 0
     async with get_async_session() as session:
-        # Retrieve all API Clients whose permissions have not been modified yet
         api_clients = await crud.retrieve_api_clients(
             session=session, permissions_modified_at=None
         )
@@ -85,6 +104,10 @@ async def backfill_client_permissions():
                 count += 1
         await session.commit()
 
-    sys.stdout.write("Successfully backfilled permissions for API Clients.\n")
-    sys.stdout.write(f"Total API Clients updated: {count}\n")
-    sys.stdout.write("\n")
+    click.echo(
+        click.style("Successfully backfilled permissions for API Clients.", fg="green")
+    )
+    click.echo(click.style(f"Total API Clients updated: {count}\n", bold=True))
+
+
+__all__ = ["create_client", "backfill_client_permissions"]

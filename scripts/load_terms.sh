@@ -14,8 +14,6 @@ fi
 
 for file in "$DIR"/*.csv; do
     if [ -f "$file" ]; then
-        echo "Processing: $file..."
-        python main.py load_terms -csv_file "$file"
-        printf "Done processing: %s\n\n" "$file"
+        python main.py load_terms "$file" --batch-size 1000
     fi
 done

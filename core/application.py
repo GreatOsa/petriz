@@ -53,37 +53,33 @@ async def lifespan(app: fastapi.FastAPI):
     from apps.search.models import execute_search_ddls
     from api.caching import ORJsonCoder, request_key_builder
 
-    try:
-        bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
-        await configure_apps()
+    bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
+    await configure_apps()
+    execute_search_ddls()
 
-        # Any setup code that needs to run before the application starts goes here
-        execute_search_ddls()
-
-        persist_redis_data = (
-            app.debug is False
-        )  # Whether to clear data stored in redis in debug mode, on application exit.
-        redis = async_pyredis.from_url(settings.REDIS_LOCATION, decode_responses=False)
-        FastAPICache.init(
-            RedisBackend(redis),
-            prefix="petriz-api-cache",
-            coder=ORJsonCoder,
-            key_builder=request_key_builder,
-            cache_status_header="X-Cache-Status",
-            expire=60 * 60,  # 1 hour
-        )
-
-        async with throttling.configure(
-            persistent=persist_redis_data,
-            redis=redis,
-            prefix="petriz-api-throttle",
-        ):
+    persist_redis_data = (
+        app.debug is False
+    )  # Whether to clear data stored in redis in debug mode, on application exit.
+    redis = async_pyredis.from_url(settings.REDIS_LOCATION, decode_responses=False)
+    async with throttling.configure(
+        persistent=persist_redis_data,
+        redis=redis,
+        prefix="petriz-api-throttle",
+    ):
+        try:
+            FastAPICache.init(
+                RedisBackend(redis),
+                prefix="petriz-api-cache",
+                coder=ORJsonCoder,
+                key_builder=request_key_builder,
+                cache_status_header="X-Cache-Status",
+                expire=60 * 60,  # 1 hour
+            )
             yield
 
-    finally:
-        # Perform additional cleanup here
-        if persist_redis_data is False and FastAPICache._backend:
-            await FastAPICache.clear()
+        finally:
+            if persist_redis_data is False and FastAPICache._backend:
+                await FastAPICache.clear()
 
 
 def main(config: str = "APP") -> fastapi.FastAPI:
