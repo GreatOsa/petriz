@@ -4,7 +4,7 @@ import typing
 from typing_extensions import Doc
 from fastapi_cache.decorator import cache
 
-from helpers.fastapi.dependencies.connections import DBSession, User
+from helpers.fastapi.dependencies.connections import AsyncDBSession, User
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
 from helpers.fastapi.dependencies.access_control import staff_user_only, ActiveUser
@@ -30,6 +30,7 @@ from .query import (
     TermsOrdering,
 )
 from . import schemas, crud
+from .models import Account
 
 
 router = fastapi.APIRouter(
@@ -69,8 +70,8 @@ TermSourceUID: typing.TypeAlias = typing.Annotated[
 @cache(namespace="search")
 async def search_terms(
     request: fastapi.Request,
-    session: DBSession,
-    user: User,
+    session: AsyncDBSession,
+    user: User[Account],
     query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
@@ -84,7 +85,7 @@ async def search_terms(
     limit: typing.Annotated[Limit, Le(100)] = 20,
     offset: Offset = 0,
 ):
-    account = user if user.is_authenticated else None
+    account = user if user and user.is_authenticated else None
     client = getattr(request.state, "client", None)
     params = clean_params(
         startswith=startswith,
@@ -153,9 +154,9 @@ async def search_terms(
     description="Add a new term to the glossary",
 )
 async def create_term(
-    user: ActiveUser,
+    user: ActiveUser[Account],
     data: schemas.TermCreateSchema,
-    session: DBSession,
+    session: AsyncDBSession,
 ):
     dumped_data = data.model_dump(mode="json")
     topics_data: typing.Optional[typing.List[str]] = dumped_data.pop("topics", None)
@@ -186,8 +187,8 @@ async def create_term(
     term = await crud.create_term(
         session,
         **dumped_data,
-        verified=user.is_staff,
-        topics=set(topics or []),
+        verified=getattr(user, "is_staff", False),
+        topics=set(topics or []), # type: ignore
     )
 
     await session.commit()
@@ -221,8 +222,8 @@ async def create_term(
 )
 @cache(namespace="terms_retrieve")
 async def retrieve_term(
-    session: DBSession,
-    user: User,
+    session: AsyncDBSession,
+    user: User[Account],
     term_uid: TermUID,
 ):
     term = await crud.retrieve_term_by_uid(session, uid=term_uid)
@@ -255,7 +256,7 @@ async def retrieve_term(
     description="Update a term by its UID",
 )
 async def update_term(
-    session: DBSession,
+    session: AsyncDBSession,
     term_uid: TermUID,
     data: schemas.TermUpdateSchema,
 ):
@@ -303,7 +304,7 @@ async def update_term(
     if topics_data:
         if data.replace_topics:
             term.topics.clear()
-        term.topics |= set(topics)
+        term.topics |= set(topics) # type: ignore
 
     session.add(term)
     await session.commit()
@@ -327,7 +328,7 @@ async def update_term(
     description="Delete a term by its UID",
 )
 async def delete_term(
-    session: DBSession,
+    session: AsyncDBSession,
     term_uid: TermUID,
 ):
     term = await crud.retrieve_term_by_uid(session, uid=term_uid)
@@ -355,7 +356,7 @@ async def delete_term(
 @cache(namespace="topics_list")
 async def retrieve_topics(
     request: fastapi.Request,
-    session: DBSession,
+    session: AsyncDBSession,
     limit: typing.Annotated[Limit, Le(50)] = 20,
     offset: Offset = 0,
 ):
@@ -387,7 +388,7 @@ async def retrieve_topics(
     ],
 )
 async def create_topic(
-    session: DBSession,
+    session: AsyncDBSession,
     data: schemas.TopicCreateSchema,
 ):
     if await crud.retrieve_topics_by_name_or_uid(session, [data.name]):
@@ -412,7 +413,7 @@ async def create_topic(
     ],
 )
 @cache(namespace="topics_retrieve")
-async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
+async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
     topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
     if not topic:
         return response.notfound("Topic matching the given query does not exist")
@@ -437,7 +438,7 @@ async def retrieve_topic(session: DBSession, topic_uid: TopicUID):
     description="Update a topic by its UID",
 )
 async def update_topic(
-    session: DBSession,
+    session: AsyncDBSession,
     topic_uid: TopicUID,
     data: schemas.TopicUpdateSchema,
 ):
@@ -473,7 +474,7 @@ async def update_topic(
     ],
     description="Delete a topic by its UID",
 )
-async def delete_topic(session: DBSession, topic_uid: TopicUID):
+async def delete_topic(session: AsyncDBSession, topic_uid: TopicUID):
     topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
     if not topic:
         return response.notfound("Topic matching the given query does not exist")
@@ -503,7 +504,7 @@ async def delete_topic(session: DBSession, topic_uid: TopicUID):
 @cache(namespace="topic_terms_list")
 async def retrieve_topic_terms(
     request: fastapi.Request,
-    session: DBSession,
+    session: AsyncDBSession,
     topic_uid: TopicUID,
     startswith: Startswith,
     ordering: TermsOrdering,
@@ -560,7 +561,7 @@ async def retrieve_topic_terms(
 @cache(namespace="term_sources_list")
 async def retrieve_term_sources(
     request: fastapi.Request,
-    session: DBSession,
+    session: AsyncDBSession,
     limit: typing.Annotated[Limit, Le(50)] = 20,
     offset: Offset = 0,
 ):
@@ -595,7 +596,7 @@ async def retrieve_term_sources(
     ],
 )
 async def create_term_source(
-    session: DBSession,
+    session: AsyncDBSession,
     data: schemas.TermSourceCreateSchema,
 ):
     term_source = await crud.create_term_source(session, **data.model_dump())
@@ -618,7 +619,7 @@ async def create_term_source(
 )
 @cache(namespace="term_source_retrieve")
 async def retrieve_term_source(
-    session: DBSession,
+    session: AsyncDBSession,
     term_source_uid: TermSourceUID,
 ):
     term_source = await crud.retrieve_term_source_by_uid(session, uid=term_source_uid)
@@ -647,7 +648,7 @@ async def retrieve_term_source(
 @cache(namespace="term_source_terms_list")
 async def retrieve_source_terms(
     request: fastapi.Request,
-    session: DBSession,
+    session: AsyncDBSession,
     term_source_uid: TermSourceUID,
     startswith: Startswith,
     verified: Verified,
@@ -708,7 +709,7 @@ async def retrieve_source_terms(
     description="Update a term source by its UID",
 )
 async def update_term_source(
-    session: DBSession,
+    session: AsyncDBSession,
     term_source_uid: TermSourceUID,
     data: schemas.TermSourceUpdateSchema,
 ):
@@ -745,7 +746,7 @@ async def update_term_source(
     description="Delete a term source by its UID",
 )
 async def delete_term_source(
-    session: DBSession,
+    session: AsyncDBSession,
     term_source_uid: TermSourceUID,
 ):
     term_source = await crud.retrieve_term_source_by_uid(session, uid=term_source_uid)
@@ -753,7 +754,7 @@ async def delete_term_source(
         return response.notfound("Term source matching the given query does not exist")
 
     term_source.is_deleted = True
-    await session.add(term_source)
+    session.add(term_source)
     await session.commit()
     return response.success(f"{term_source.name} has been deleted")
 
@@ -773,8 +774,8 @@ async def delete_term_source(
 )
 async def retrieve_account_search_history(
     request: fastapi.Request,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
@@ -838,8 +839,8 @@ async def retrieve_account_search_history(
     description="Delete the search history of the authenticated user/account",
 )
 async def delete_account_search_history(
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     # Query parameters
     query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
@@ -891,8 +892,8 @@ async def delete_account_search_history(
 )
 async def account_search_metrics(
     request: fastapi.Request,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     timestamp_gte: typing.Annotated[
         TimestampGte,
         Doc("Only include search records that were created after this timestamp"),
@@ -902,7 +903,7 @@ async def account_search_metrics(
         Doc("Only include search records that were created before this timestamp"),
     ],
 ):
-    client = getattr(request.state, "client", None)
+    # client = getattr(request.state, "client", None)
     params = clean_params(
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
@@ -930,7 +931,7 @@ async def account_search_metrics(
     ],
 )
 async def global_search_metrics(
-    session: DBSession,
+    session: AsyncDBSession,
     timestamp_gte: typing.Annotated[
         TimestampGte,
         Doc("Only include search records that were created after this timestamp"),

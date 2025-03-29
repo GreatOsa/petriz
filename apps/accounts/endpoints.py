@@ -3,7 +3,7 @@ import fastapi
 from . import schemas
 from . import crud
 from helpers.fastapi.mailing import send_mail
-from helpers.fastapi.dependencies.connections import DBSession
+from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
 from api.dependencies.authorization import (
@@ -13,7 +13,7 @@ from api.dependencies.authorization import (
 from api.dependencies.authentication import authentication_required
 from api.dependencies.auditing import event
 from apps.tokens import auth_tokens, totps
-
+from .models import Account
 
 router = fastapi.APIRouter(
     dependencies=[
@@ -46,7 +46,7 @@ router = fastapi.APIRouter(
 )
 async def registration_initiation(
     data: schemas.AccountRegistrationInitiationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     """
@@ -92,7 +92,7 @@ async def registration_initiation(
 )
 async def registration_email_verification(
     data: schemas.EmailOTPVerificationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     account_already_exists = await crud.check_account_exists(
@@ -141,7 +141,7 @@ async def registration_email_verification(
 )
 async def registration_completion(
     data: schemas.AccountRegistrationCompletionSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     try:
@@ -152,6 +152,8 @@ async def registration_completion(
             session=session,
         )
     except totps.InvalidToken:
+        return response.bad_request("Invalid or expired token.")
+    if not token_data:
         return response.bad_request("Invalid or expired token.")
 
     account_already_exists = await crud.check_account_exists(
@@ -212,7 +214,7 @@ async def registration_completion(
 )
 async def authentication_initiation(
     data: schemas.AccountAuthenticationInitiationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     """
@@ -258,7 +260,7 @@ async def authentication_initiation(
 )
 async def authentication_completion(
     data: schemas.EmailOTPVerificationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     verified = await totps.verify_identifier_totp_token(
@@ -272,6 +274,9 @@ async def authentication_completion(
         return response.bad_request("Invalid OTP token.")
 
     account = await crud.retrieve_account_by_email(session=session, email=data.email)
+    if not account:
+        return response.bad_request("No account found with this email.")
+
     auth_token, created = await auth_tokens.get_or_create_auth_token(
         session=session, account=account
     )
@@ -319,7 +324,7 @@ async def authentication_completion(
 )
 async def password_reset_initiation(
     data: schemas.PasswordResetInitiationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     account_exists = await crud.check_account_exists(session=session, email=data.email)
@@ -360,7 +365,7 @@ async def password_reset_initiation(
 )
 async def password_reset_verification(
     data: schemas.EmailOTPVerificationSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     verified = await totps.verify_identifier_totp_token(
@@ -402,7 +407,7 @@ async def password_reset_verification(
 )
 async def password_reset_completion(
     data: schemas.PasswordResetCompletionSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     try:
@@ -413,6 +418,8 @@ async def password_reset_completion(
             session=session,
         )
     except totps.InvalidToken:
+        return response.bad_request("Invalid or expired token.")
+    if not token_data:
         return response.bad_request("Invalid or expired token.")
 
     account = await crud.retrieve_account_by_email(
@@ -448,7 +455,7 @@ async def password_reset_completion(
         permissions_required("accounts::*::view"),
     ],
 )
-async def retrieve_account(account: ActiveUser):
+async def retrieve_account(account: ActiveUser[Account]):
     return response.success(data=schemas.AccountSchema.model_validate(account))
 
 
@@ -468,8 +475,8 @@ async def retrieve_account(account: ActiveUser):
 )
 async def update_account(
     data: schemas.AccountUpdateSchema,
-    account: ActiveUser,
-    session: DBSession,
+    account: ActiveUser[Account],
+    session: AsyncDBSession,
 ):
     changed_data = data.model_dump(exclude_unset=True)
     for key, value in changed_data.items():
@@ -498,7 +505,7 @@ async def update_account(
 )
 async def initiate_email_change(
     data: schemas.EmailChangeSchema,
-    session: DBSession,
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     account_exists = await crud.check_account_exists(
@@ -542,8 +549,8 @@ async def initiate_email_change(
 )
 async def complete_email_change(
     data: schemas.EmailOTPVerificationSchema,
-    account: ActiveUser,
-    session: DBSession,
+    account: ActiveUser[Account],
+    session: AsyncDBSession,
     request: fastapi.Request,
 ):
     verified = await totps.verify_identifier_totp_token(
@@ -556,7 +563,7 @@ async def complete_email_change(
     if not verified:
         return response.bad_request("Invalid OTP token.")
 
-    account.email = data.email
+    account.email = data.email  # type: ignore
     session.add(account)
     await session.commit()
     await session.refresh(account)
@@ -580,8 +587,8 @@ async def complete_email_change(
 )
 async def change_password(
     data: schemas.PasswordChangeSchema,
-    account: ActiveUser,
-    session: DBSession,
+    account: ActiveUser[Account],
+    session: AsyncDBSession,
 ):
     if account.check_password(data.old_password.get_secret_value()):
         return response.bad_request("Incorrect account password.")
@@ -606,7 +613,7 @@ async def change_password(
         authentication_required,
     ],
 )
-async def universal_logout_view(session: DBSession, account: ActiveUser):
+async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Account]):
     await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
     await session.commit()
     return response.success("Account logged-out successfully!")
@@ -627,10 +634,10 @@ async def universal_logout_view(session: DBSession, account: ActiveUser):
         authentication_required,
     ],
 )
-async def delete_account(account: ActiveUser, session: DBSession):
+async def delete_account(account: ActiveUser[Account], session: AsyncDBSession):
     account.is_deleted = True
     account.is_active = False
-    await session.add(account)
+    session.add(account)
     # Invalidate all authentications for the account
     await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
     await session.commit()

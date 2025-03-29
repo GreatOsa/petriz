@@ -6,6 +6,7 @@ All setup code should be defined in the `configure` function
 
 import os
 from contextlib import asynccontextmanager
+import threading
 import redis.asyncio as async_pyredis
 import fastapi
 from fastapi_cache import FastAPICache
@@ -14,7 +15,16 @@ from fastapi_cache.backends.redis import RedisBackend
 from helpers.fastapi.config import settings, SETTINGS_ENV_VARIABLE
 
 NAME = "Petriz"
-SETTINGS_MODULE = "core.settings"
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+if ENVIRONMENT == "development":
+    SETTINGS_MODULE = "core.settings.development_settings"
+elif ENVIRONMENT == "staging":
+    SETTINGS_MODULE = "core.settings.staging_settings"
+elif ENVIRONMENT == "production":
+    SETTINGS_MODULE = "core.settings.production_settings"
+else:
+    raise ValueError(f"Invalid environment: {ENVIRONMENT}")
+
 VERSION = "1.0.0"
 
 
@@ -25,22 +35,23 @@ def set_env_vars():
     os.environ.setdefault(SETTINGS_ENV_VARIABLE, SETTINGS_MODULE)
 
 
-def initialize_project():
+def initialize_project() -> None:
     """Initialize/configure project"""
     set_env_vars()
     settings.configure()
 
     from helpers.fastapi.routing import install_router
-    from .endpoints import router
+    from .endpoints import base_router
     from helpers.fastapi.apps import discover_apps
 
     for app in discover_apps():
-        # Ensures that commands defined in each app are registered
-        # in the commands registry on project setup
+        # Ensures that models and commands defined in each app
+        # are detected on project setup
+        app.models
         app.commands
 
     # Install routers
-    install_router(router, router_name="base_router")
+    install_router(base_router, router_name="base_router")
 
 
 @asynccontextmanager
@@ -53,9 +64,11 @@ async def lifespan(app: fastapi.FastAPI):
     from apps.search.models import execute_search_ddls
     from api.caching import ORJsonCoder, request_key_builder
 
-    bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
-    await configure_apps()
-    execute_search_ddls()
+    _lock = threading.Lock()
+    with _lock:
+        bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
+        await configure_apps()
+        execute_search_ddls()
 
     persist_redis_data = (
         app.debug is False
@@ -79,7 +92,8 @@ async def lifespan(app: fastapi.FastAPI):
 
         finally:
             if persist_redis_data is False and FastAPICache._backend:
-                await FastAPICache.clear()
+                with _lock:
+                    await FastAPICache.clear()
 
 
 def main(config: str = "APP") -> fastapi.FastAPI:

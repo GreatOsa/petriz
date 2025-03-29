@@ -1,15 +1,16 @@
 import typing
 import fastapi
 import fastapi.params
+from starlette.requests import HTTPConnection
 
 from helpers.fastapi.config import settings
 
 
-class RequestEvent(typing.TypedDict):
+class ConnectionEvent(typing.TypedDict):
     event: str
-    target: str
-    target_uid: str
-    description: str
+    target: typing.Optional[typing.Any]
+    target_uid: typing.Optional[typing.Any]
+    description: typing.Optional[str]
 
 
 def event(
@@ -18,12 +19,13 @@ def event(
     target: typing.Optional[typing.Any] = None,
     target_uid: typing.Optional[typing.Any] = None,
     description: typing.Optional[str] = None,
+    event_dependency_suffix: str = "request",
 ) -> fastapi.params.Depends:
     """
-    Mark the request for audit logging by attaching the event data to the request state.
+    Mark the connection for audit logging by attaching the event data to the connection state.
 
     Endeavour to make this dependency the first in the chain of dependencies.
-    This ensures that the event data is attached to the request state before any other dependencies are resolved.
+    This ensures that the event data is attached to the connection state before any other dependencies are resolved.
     Hence, errors that occur during the resolution of other dependencies can still be logged with the correct event data.
 
     Example:
@@ -58,26 +60,26 @@ def event(
     :param target_uid: The unique ID of the target. This can also be another fastapi
         dependency, path, query, etc. that resolves to the target ID.
     :param description: A description of the event or action.
-    :return: A fastapi dependency that attaches the event data to the request state.
+    :return: A fastapi dependency that attaches the event data to the connection state.
     """
 
-    async def _dependency(
-        request: fastapi.Request,
+    async def dependency(
+        connection: HTTPConnection,
         target: typing.Optional[typing.Any] = target,
         target_uid: typing.Optional[typing.Any] = target_uid,
-    ) -> fastapi.Request:
-        if not settings.LOG_REQUEST_EVENTS:
-            return request
+    ) -> HTTPConnection:
+        if not settings.LOG_CONNECTION_EVENTS:
+            return connection
 
-        event_data = RequestEvent(
+        event_data = ConnectionEvent(
             event=event,
             target=target,
             target_uid=target_uid,
             description=description,
         )
-        request_events = getattr(request.state, "events", [])
-        setattr(request.state, "events", [*request_events, event_data])
-        return request
+        connection_events = getattr(connection.state, "events", [])
+        setattr(connection.state, "events", [*connection_events, event_data])
+        return connection
 
-    _dependency.__name__ = f"{event}_request"
-    return fastapi.Depends(_dependency)
+    dependency.__name__ = f"{event}_{event_dependency_suffix}"
+    return fastapi.Depends(dependency)

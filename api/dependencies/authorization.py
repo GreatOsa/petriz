@@ -1,64 +1,112 @@
-import fastapi
 import typing
+import fastapi
+import pydantic
 from starlette.requests import HTTPConnection
+from fastapi.security.api_key import APIKeyHeader
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpers.fastapi.dependencies.access_control import access_control
 from helpers.fastapi.sqlalchemy.setup import get_async_session
-from helpers.fastapi.dependencies.connections import DBSession, _DBSession
-from helpers.fastapi.dependencies import Dependency
-
 from apps.clients.models import APIClient
 from apps.clients.crud import retrieve_api_client
 from apps.clients.permissions import resolve_permissions, check_permissions
 
 
-API_SECRET_HEADER = "X-CLIENT-SECRET"
+class ClientCredentials(pydantic.BaseModel):
+    connection: typing.Any
+    client_id: str
+    client_secret: str
+
+
+CLIENT_SECRET_HEADER = "X-CLIENT-SECRET"
 CLIENT_ID_HEADER = "X-CLIENT-ID"
 
+x_client_id = APIKeyHeader(
+    name=CLIENT_ID_HEADER,
+    scheme_name="X-CLIENT-ID",
+    auto_error=False,
+    description="API client ID",
+)
+x_client_secret = APIKeyHeader(
+    name=CLIENT_SECRET_HEADER,
+    scheme_name="X-CLIENT-SECRET",
+    auto_error=False,
+    description="API client secret",
+)
 
-async def check_client_credentials(connection: HTTPConnection, session: _DBSession):
+
+async def get_client_credentials(
+    connection: HTTPConnection,
+    client_id: typing.Annotated[typing.Optional[str], fastapi.Depends(x_client_id)],
+    client_secret: typing.Annotated[
+        typing.Optional[str], fastapi.Depends(x_client_secret)
+    ],
+) -> ClientCredentials:
+    if not (client_id and client_secret):
+        return ClientCredentials(
+            connection=connection,
+            client_id="",
+            client_secret="",
+        )
+    return ClientCredentials(
+        connection=connection,
+        client_id=client_id,
+        client_secret=client_secret,
+    )
+
+
+async def check_client_credentials(
+    credentials: ClientCredentials,
+    session: typing.Optional[AsyncSession],
+) -> bool:
     """
     Checks if the http connection was made by an authorized/valid API client,
     by validating the API secret and client ID in the connection headers.
 
     Attaches the client object to the connection state if the client is authorized.
 
-    :param connection: The HTTP connection.
+    :param credentials:
     :param session: The database session.
     :return: True if the connection was made by an authorized/valid API client, False otherwise.
     """
-    client = getattr(connection.state, "client", None)
+    client = getattr(credentials.connection.state, "client", None)
     if isinstance(client, APIClient):
         return True
 
-    api_secret = connection.headers.get(API_SECRET_HEADER)
-    client_id = connection.headers.get(CLIENT_ID_HEADER)
+    client_secret = credentials.client_secret
+    client_id = credentials.client_id
 
-    if not (api_secret and client_id):
+    if not (client_secret and client_id):
         return False
 
-    async with get_async_session() as session:
+    if session:
         api_client = await retrieve_api_client(session, uid=client_id)
-        if not api_client or api_client.disabled:
-            return False
+    else:
+        async with get_async_session() as session:
+            api_client = await retrieve_api_client(session, uid=client_id)
 
-        api_secret_is_valid = (
-            api_client.api_key
-            and api_client.api_key.secret == api_secret
-            and api_client.api_key.valid
-        )
-        if not api_secret_is_valid:
-            return False
+    if not api_client or api_client.disabled:
+        return False
 
-    connection.state.client = api_client
+    api_secret_is_valid = (
+        api_client.api_key
+        and api_client.api_key.secret == client_secret
+        and api_client.api_key.valid
+    )
+    if not api_secret_is_valid:
+        return False
+
+    # Update the connection state with the API client
+    credentials.connection.state.client = api_client
     return True
 
 
 authorized_api_client_only = access_control(
+    get_client_credentials,
     check_client_credentials,
-    status_code=fastapi.status.HTTP_401_UNAUTHORIZED,
-    message="Unauthorized API client! Ensure you have provided a "
-    "valid API secret and client ID in the connection headers.",
+    status_code=fastapi.status.HTTP_403_FORBIDDEN,
+    message="Unauthorized API client! Ensure you have provided a \
+    valid API secret and client ID in the connection headers.",
 )
 """
 Connection access control dependency. 
@@ -66,7 +114,7 @@ Connection access control dependency.
 Checks if the connection was made by an authorized/valid API client.
 Attaches the client object to the connection state if the client is authorized.
 
-:raises HTTPException: If the connection was not made by an authorized/valid API client.
+:raises HTTPException/WebSocketDisconnect: If the connection was not made by an authorized/valid API client.
 :return: The updated connection if the client is appropriately authorized.
 """
 
@@ -83,34 +131,38 @@ made by an authorized/valid API client.
 
 Attaches the client object to the connection state if the client is authorized.
 
-:raises HTTPException: If the connection was not made by an authorized/valid API client.
+:raises HTTPException/WebSocketDisconnect: If the connection was not made by an authorized/valid API client.
 :return: The updated connection if the client is appropriately authorized.
 """
 
 
-def _is_internal_client(connection: HTTPConnection, _):
-    client = getattr(connection.state, "client", None)
-    if not isinstance(client, APIClient):
+def is_internal_client(
+    credentials: typing.Optional[ClientCredentials],
+    session: typing.Optional[AsyncSession],
+) -> bool:
+    if not credentials or not check_client_credentials(credentials, session):
         return False
+
+    client: APIClient = credentials.connection.state.client
     return client.client_type.lower() == APIClient.ClientType.INTERNAL
 
 
-@Dependency
-async def internal_api_clients_only(
-    connection: AuthorizedAPIClient, session: DBSession
-):
-    """
-    Connection access control dependency.
+internal_api_clients_only = access_control(
+    get_client_credentials,
+    is_internal_client,
+    status_code=fastapi.status.HTTP_403_FORBIDDEN,
+    message="Unauthorized API client!",
+)
+"""
+Connection access control dependency.
 
-    Checks if the connection was made by an authorized/valid `INTERNAL` API client.
+Checks if the connection was made by an authorized/valid `INTERNAL` API client.
 
-    :param connection: The HTTP connection.
-    :param session: The database session.
-    :raises HTTPException: If the connection was not made by an authorized/valid `INTERNAL` API client.
-    :return: The updated connection if the client is appropriately authorized.
-    """
-    _depends = access_control(_is_internal_client)
-    return await _depends.dependency(connection, session)
+:param connection: The HTTP connection.
+:param session: The database session.
+:raises HTTPException/WebSocketDisconnect: If the connection was not made by an authorized/valid `INTERNAL` API client.
+:return: The updated connection if the client is appropriately authorized.
+"""
 
 
 InternalAPIClient = typing.Annotated[
@@ -122,7 +174,7 @@ by an authorized/valid `INTERNAL` API client.
 
 Attaches the `INTERNAL` type client object to the connection state if the client is authorized.
 
-:raises HTTPException: If the connection was not made by an authorized/valid `INTERNAL` API client.
+:raises HTTPException/WebSocketDisconnect: If the connection was not made by an authorized/valid `INTERNAL` API client.
 """
 
 
@@ -136,14 +188,16 @@ def permissions_required(*permissions: str):
     """
     permission_set = resolve_permissions(*permissions)
 
-    async def _check_client_permissions(connection: HTTPConnection, _):
+    async def check_client_permissions(connection: HTTPConnection, _) -> bool:
         client = getattr(connection.state, "client", None)
         if not isinstance(client, APIClient):
             return False
         return check_permissions(client, *permission_set)
 
     return access_control(
-        _check_client_permissions, message="Unauthorized resource access!"
+        HTTPConnection,
+        check_client_permissions,
+        message="Unauthorized resource access!",
     )
 
 

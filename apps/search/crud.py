@@ -3,7 +3,7 @@ import typing
 import re
 import datetime
 import sqlalchemy as sa
-from sqlalchemy.orm import selectinload, joinedload
+from sqlalchemy.orm import selectinload, joinedload, InstrumentedAttribute
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.accounts.models import Account
@@ -27,12 +27,16 @@ def _clean_strings(strings: typing.Optional[typing.Iterable[str]]) -> typing.Lis
     return [s.strip().lower() for s in strings if s.strip()]
 
 
-def text_to_tsvector(text: str, language: str = "english"):
+def text_to_tsvector(
+    text: typing.Union[str, InstrumentedAttribute[str]], language: str = "english"
+):
     """Convert text to a tsvector for full-text search."""
     return sa.func.to_tsvector(language, text)
 
 
-def text_to_tsquery(text: str, language: str = "english"):
+def text_to_tsquery(
+    text: typing.Union[str, InstrumentedAttribute[str]], language: str = "english"
+):
     """Convert text to a tsquery for full-text search."""
     return sa.func.plainto_tsquery(language, text)
 
@@ -105,7 +109,7 @@ async def create_topic(
     :param description: A description of the topic
     :return: The created topic
     """
-    topic = Topic(name=name, description=description)
+    topic = Topic(name=name, description=description)  # type: ignore
     session.add(topic)
     return topic
 
@@ -197,7 +201,7 @@ async def get_or_create_term_source(
         raise ValueError("Either name or uid must be provided")
 
     created = False
-    term_source = await retrieve_term_source_by_name_or_uid(session, uid or name)
+    term_source = await retrieve_term_source_by_name_or_uid(session, (uid or name))  # type: ignore
     if term_source:
         return term_source, created
 
@@ -227,7 +231,7 @@ async def retrieve_term_source_terms(
     session: AsyncSession,
     term_source: TermSource,
     topics: typing.Optional[typing.List[Topic]] = None,
-    startswith: typing.Optional[str] = None,
+    startswith: typing.Optional[typing.List[str]] = None,
     verified: typing.Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
@@ -269,7 +273,8 @@ async def create_term_view(
     :return: The created term view record
     """
     term_view = TermView(
-        term_id=term.id, viewed_by_id=viewed_by.id if viewed_by else None
+        term_id=term.id, # type: ignore
+        viewed_by_id=viewed_by.id if viewed_by else None,  # type: ignore
     )
     session.add(term_view)
     return term_view
@@ -296,14 +301,14 @@ async def check_term_exists_for_source(
             )
         )
     )
-    return result.scalar()
+    return result.scalar_one()
 
 
 async def retrieve_topic_terms(
     session: AsyncSession,
     topic: Topic,
     verified: typing.Optional[bool] = None,
-    startswith: typing.Optional[str] = None,
+    startswith: typing.Optional[typing.List[str]] = None,
     source: typing.Optional[TermSource] = None,
     limit: int = 100,
     offset: int = 0,
@@ -399,7 +404,7 @@ async def update_related_terms(
         session,
         term,
         limit=limit,
-        exclude={related_term.id for related_term in term.relatives},
+        exclude=list({related_term.id for related_term in term.relatives}),
     )
     term.relatives |= set(related_terms)
     session.add(term)
@@ -432,7 +437,7 @@ async def search_terms(
     limit: int = 100,
     offset: int = 0,
     exclude: typing.Optional[typing.List[_UID]] = None,
-    ordering: typing.List[sa.UnaryExpression[Term]] = Term.DEFAULT_ORDERING,
+    ordering: typing.Sequence[sa.UnaryExpression] = Term.DEFAULT_ORDERING,
 ) -> typing.List[Term]:
     """
     Search for terms in the glossary.
@@ -528,10 +533,10 @@ async def create_search_record(
     :return: The created search record
     """
     search_record = SearchRecord(
-        account_id=account.id if account else None,
-        client_id=client.id if client else None,
-        query=query,
-        extradata=metadata or {},
+        account_id=account.id if account else None,  # type: ignore
+        client_id=client.id if client else None,  # type: ignore
+        query=query,  # type: ignore
+        extradata=metadata or {},  # type: ignore
     )
     if topics:
         search_record.topics |= set(topics)
@@ -585,9 +590,7 @@ async def retrieve_account_search_history(
     timestamp_lte: typing.Optional[datetime.datetime] = None,
     limit: int = 100,
     offset: int = 0,
-    ordering: typing.List[
-        sa.UnaryExpression[SearchRecord]
-    ] = SearchRecord.DEFAULT_ORDERING,
+    ordering: typing.Sequence[sa.UnaryExpression] = SearchRecord.DEFAULT_ORDERING,
 ) -> typing.List[SearchRecord]:
     """
     Retrieve the search history of an account.
@@ -603,8 +606,6 @@ async def retrieve_account_search_history(
     :param offset: The number of search records to skip
     :return: A sequence of search records that match the given filters
     """
-    topics = _clean_strings(topics)
-
     query_filters = [
         SearchRecord.account_id == account.id,
     ]
@@ -670,8 +671,6 @@ async def delete_account_search_history(
     :param timestamp_lte: Only delete search records that were created before this timestamp
     :return: The number of search records that were deleted
     """
-    topics = _clean_strings(topics)
-
     query_filters = [
         SearchRecord.account_id == account.id,
     ]
@@ -710,7 +709,7 @@ async def delete_account_search_history(
 
 async def get_term_count(
     session: AsyncSession,
-    query_filters: typing.List[sa.BinaryExpression[Term]],
+    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
 ) -> int:
     """
     Return the number of terms that match the given filters.
@@ -729,7 +728,7 @@ async def get_term_count(
 
 async def get_search_count(
     session: AsyncSession,
-    query_filters: typing.List[sa.BinaryExpression[SearchRecord]],
+    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
 ) -> int:
     """
     Return the number of searches that match the given filters.
@@ -746,7 +745,7 @@ async def get_search_count(
 
 async def get_most_searched_queries(
     session: AsyncSession,
-    query_filters: typing.List[sa.BinaryExpression[SearchRecord]],
+    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -772,12 +771,12 @@ async def get_most_searched_queries(
         .group_by(sa.text("query_lower"))
     )
     most_searched_queries = await session.execute(most_searched_queries_query)
-    return dict(most_searched_queries.all())
+    return dict(most_searched_queries.all()) # type: ignore
 
 
 async def get_most_searched_topics(
     session: AsyncSession,
-    query_filters: typing.List[sa.BinaryExpression[SearchRecord]],
+    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -812,12 +811,12 @@ async def get_most_searched_topics(
         .limit(limit)
     )
     most_searched_topics = await session.execute(most_searched_topics_query)
-    return dict(most_searched_topics.all())
+    return dict(most_searched_topics.all()) # type: ignore
 
 
 async def get_most_searched_words(
     session: AsyncSession,
-    query_filters: typing.List[sa.BinaryExpression[SearchRecord]],
+    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -849,12 +848,14 @@ async def get_most_searched_words(
         .group_by(sa.text("word_lower"))
     )
     most_searched_words = await session.execute(most_searched_words_query)
-    return dict(most_searched_words.all())
+    return dict(most_searched_words.all()) # type: ignore
 
 
 async def get_verified_and_unverified_term_count(
     session: AsyncSession,
-    query_filters: typing.Optional[typing.List[sa.BinaryExpression[Term]]] = None,
+    query_filters: typing.Optional[
+        typing.List[sa.ColumnExpressionArgument[bool]]
+    ] = None,
 ):
     """
     Returns a tuple of the number of verified and unverified terms in the glossary.
@@ -879,7 +880,9 @@ async def get_verified_and_unverified_term_count(
 
 async def get_terms_sources(
     session: AsyncSession,
-    query_filters: typing.Optional[typing.List[sa.BinaryExpression[Term]]] = None,
+    query_filters: typing.Optional[
+        typing.List[sa.ColumnExpressionArgument[bool]]
+    ] = None,
 ):
     """
     Returns a mapping of the sources of terms in the glossary to the number of terms from each source.
@@ -901,7 +904,7 @@ async def get_terms_sources(
         .group_by(TermSource.id)
     )
     sources = await session.execute(sources_query)
-    return dict(sources.all())
+    return dict(sources.all()) # type: ignore
 
 
 async def generate_account_search_metrics(
@@ -937,15 +940,15 @@ async def generate_account_search_metrics(
 
     # NOTE: Currently, deleted search records still contribute to the account search metrics.
     # To exclude deleted search records, add `~SearchRecord.is_deleted` to the query_filters
-    account_search_metrics.search_count = await get_search_count(session, query_filters)
+    account_search_metrics.search_count = await get_search_count(session, query_filters) # type: ignore
     account_search_metrics.most_searched_queries = await get_most_searched_queries(
-        session, query_filters=query_filters, limit=10
+        session, query_filters=query_filters, limit=10 # type: ignore
     )
     account_search_metrics.most_searched_topics = await get_most_searched_topics(
-        session, query_filters=query_filters, limit=5
+        session, query_filters=query_filters, limit=5 # type: ignore
     )
     account_search_metrics.most_searched_words = await get_most_searched_words(
-        session, query_filters=query_filters, limit=5
+        session, query_filters=query_filters, limit=5 # type: ignore
     )
     return account_search_metrics
 
@@ -974,17 +977,17 @@ async def generate_global_search_metrics(
 
     query_filters = [*date_filters]
     # NOTE: Deleted search records always contribute to the global search metrics.
-    global_search_metrics.search_count = await get_search_count(session, query_filters)
+    global_search_metrics.search_count = await get_search_count(session, query_filters) # type: ignore
     global_search_metrics.most_searched_queries = await get_most_searched_queries(
-        session, query_filters=query_filters, limit=10
+        session, query_filters=query_filters, limit=10 # type: ignore
     )
     global_search_metrics.most_searched_topics = await get_most_searched_topics(
-        session, query_filters=query_filters, limit=5
+        session, query_filters=query_filters, limit=5 # type: ignore
     )
     global_search_metrics.most_searched_words = await get_most_searched_words(
-        session, query_filters=query_filters, limit=5
+        session, query_filters=query_filters, limit=5 # type: ignore
     )
-    global_search_metrics.sources = await get_terms_sources(session)
+    global_search_metrics.sources = await get_terms_sources(session) # type: ignore
     (
         verified_term_count,
         unverified_term_count,

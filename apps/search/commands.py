@@ -28,7 +28,7 @@ def get_or_create_topic_by_name(
     if topic:
         return topic
 
-    topic = Topic(name=name, description=description)
+    topic = Topic(name=name, description=description)  # type: ignore
     db_session.add(topic)
     db_session.flush()
     return topic
@@ -67,7 +67,7 @@ def get_or_create_term_source_by_name(
     if term_source:
         return term_source
 
-    term_source = TermSource(name=name, description=description, url=url)
+    term_source = TermSource(name=name, description=description, url=url)  # type: ignore
     db_session.add(term_source)
     db_session.flush()
     return term_source
@@ -84,22 +84,31 @@ def row_to_term(
     if term_url:
         try:
             parsed_url = parse_url(term_url)
-            source_url = parsed_url.scheme + "://" + parsed_url.netloc
+            if parsed_url.scheme or parsed_url.netloc:
+                source_url = (
+                    f"{parsed_url.scheme}://" if parsed_url.scheme else ""
+                ) + (parsed_url.netloc or "")
+            else:
+                source_url = None
         except Exception:
             source_url = None
     else:
         source_url = None
-    term_source = get_or_create_term_source_by_name(
-        db_session=db_session,
-        name=source_name,
-        url=source_url,
-    )
+
+    if source_name:
+        term_source = get_or_create_term_source_by_name(
+            db_session=db_session,
+            name=source_name,
+            url=source_url,
+        )
+    else:
+        term_source = None
     return Term(
-        name=row["Term"],
-        definition=row["Definition"],
-        grammatical_label=row.get("Grammatical Label", None),
-        verified=verified,
-        source=term_source,
+        name=row["Term"], # type: ignore
+        definition=row["Definition"], # type: ignore
+        grammatical_label=row.get("Grammatical Label", None), # type: ignore
+        verified=verified, # type: ignore
+        source=term_source, # type: ignore
     )
 
 
@@ -186,7 +195,7 @@ def load_terms(
 ):
     """Load petroleum terms from a CSV file into the database."""
     try:
-        with get_session() as db_session:
+        with get_session() as db_session: # type: ignore
             term_count = load_terms_from_csv_and_save_to_db(
                 db_session=db_session,
                 csv_file=csv_file,

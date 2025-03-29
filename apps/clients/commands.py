@@ -98,7 +98,7 @@ async def backfill_client_permissions():
                 api_client.client_type.lower(), None
             )
             if permissions:
-                api_client.permissions = permissions
+                api_client.permissions = list(permissions)
                 session.add(api_client)
                 await session.flush()
                 count += 1

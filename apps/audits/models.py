@@ -1,6 +1,5 @@
 import typing
 import enum
-import uuid
 from ipaddress import IPv4Address, IPv6Address
 from annotated_types import MaxLen
 import sqlalchemy as sa
@@ -20,7 +19,7 @@ class ActionStatus(enum.StrEnum):
     ERROR = "error"
 
 
-class AuditLogEntry(
+class AuditLogEntry( # type: ignore
     mixins.UUID7PrimaryKeyMixin,
     mixins.TimestampMixin,
     models.Model,

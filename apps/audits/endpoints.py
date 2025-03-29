@@ -3,7 +3,7 @@ import typing
 from annotated_types import Le
 from fastapi_cache.decorator import cache
 
-from helpers.fastapi.dependencies.connections import DBSession
+from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi import response
 from helpers.fastapi.response.pagination import paginated_data
 from helpers.fastapi.requests.query import (
@@ -33,6 +33,7 @@ from .query import (
     Status,
     AuditLogOrdering,
 )
+
 
 router = fastapi.APIRouter(
     tags=["audits"],
@@ -64,7 +65,7 @@ router = fastapi.APIRouter(
 @cache(namespace="audit_logs", expire=60)
 async def retrieve_audit_logs(
     request: fastapi.Request,
-    session: DBSession,
+    session: AsyncDBSession,
     event: Event,
     user_agent: UserAgent,
     ip_address: IPAddress,
@@ -99,7 +100,7 @@ async def retrieve_audit_logs(
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
     )
-    audit_logs = await crud.retrieve_audit_log_entries(session, **params)
+    audit_logs = await crud.retrieve_audit_log_entries(session, **params)  # type: ignore
     response_data = [
         schemas.AuditLogEntrySchema.model_validate(audit_log_entry)
         for audit_log_entry in audit_logs

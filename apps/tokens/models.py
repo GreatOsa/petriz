@@ -41,7 +41,7 @@ def generate_auth_token_secret() -> str:
     return generate_uid(prefix="petriz_authtoken_")
 
 
-class AuthToken(
+class AuthToken( # type: ignore
     mixins.TimestampMixin,
     mixins.UUID7PrimaryKeyMixin,
     models.Model,

@@ -12,12 +12,12 @@ from .models import APIClient
 
 clients_ordering_query_parser = ordering_query_parser_factory(
     APIClient,
-    allowed_columns=[
+    allowed_columns={
         "name",
         "client_type",
         "created_at",
         "updated_at",
-    ],
+    },
 )
 
 APIClientOrdering: typing.TypeAlias = typing.Annotated[

@@ -3,7 +3,11 @@ import fastapi
 from helpers.fastapi.routing import path
 
 
-router = fastapi.APIRouter()
+base_router = fastapi.APIRouter()
 """Project's base router"""
 
-router.include_router(path("api.endpoints"), prefix="/api/v1")
+
+base_router.include_router(
+    path("api.endpoints", router_name="api_router"),
+    prefix="/api",
+)

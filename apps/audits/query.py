@@ -1,5 +1,4 @@
 import typing
-import uuid
 import fastapi
 from typing_extensions import Doc
 

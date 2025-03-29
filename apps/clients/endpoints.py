@@ -2,7 +2,7 @@ import typing
 from annotated_types import Le
 import fastapi
 
-from helpers.fastapi.dependencies.connections import DBSession
+from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
 from helpers.fastapi.response.pagination import paginated_data
@@ -16,6 +16,7 @@ from api.dependencies.authorization import (
 from api.dependencies.auditing import event
 from api.dependencies.authentication import authentication_required
 from apps.clients.models import APIClient
+from apps.accounts.models import Account
 from . import schemas, crud
 from .query import APIClientOrdering
 from .permissions import (
@@ -53,8 +54,8 @@ router = fastapi.APIRouter(
 )
 async def create_client(
     data: schemas.APIClientCreateSchema,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
 ):
     is_user_client = data.client_type == APIClient.ClientType.USER
     if is_user_client:
@@ -111,8 +112,8 @@ async def create_client(
 )
 async def retrieve_clients(
     request: fastapi.Request,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     ordering: APIClientOrdering,
     client_type: typing.Annotated[
         typing.Optional[APIClient.ClientType],
@@ -121,7 +122,7 @@ async def retrieve_clients(
     limit: typing.Annotated[Limit, Le(100)] = 100,
     offset: Offset = 0,
 ):
-    filters = {"limit": limit, "offset": offset}
+    filters: typing.Dict[str, typing.Any] = {"limit": limit, "offset": offset}
     client_type = client_type or APIClient.ClientType.USER
 
     if client_type == APIClient.ClientType.USER:
@@ -162,8 +163,8 @@ async def retrieve_clients(
     ],
 )
 async def retrieve_client(
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
@@ -195,8 +196,8 @@ async def retrieve_client(
 )
 async def update_client(
     data: schemas.APIClientUpdateSchema,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
@@ -242,8 +243,8 @@ async def update_client(
 )
 async def bulk_delete_clients(
     data: schemas.APIClientBulkDeleteSchema,
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
 ):
     filters = {"uids": data.client_uids}
     if not account.is_admin:
@@ -278,8 +279,8 @@ async def bulk_delete_clients(
     ],
 )
 async def delete_client(
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
@@ -311,8 +312,8 @@ async def delete_client(
     ],
 )
 async def refresh_client_api_secret(
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
@@ -347,8 +348,8 @@ async def refresh_client_api_secret(
     ],
 )
 async def update_client_permissions(
-    session: DBSession,
-    account: ActiveUser,
+    session: AsyncDBSession,
+    account: ActiveUser[Account],
     data: typing.List[PermissionCreateSchema],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):

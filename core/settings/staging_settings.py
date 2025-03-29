@@ -8,19 +8,28 @@ from helpers.generics.utils.db import get_database_url
 from helpers.fastapi import default_settings
 from helpers.fastapi.exceptions.capture import ExceptionCaptor
 
-load_dotenv(find_dotenv(".env.dev.local", raise_error_if_not_found=True))
+load_dotenv(find_dotenv(".env.staging", raise_error_if_not_found=True))
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+
+APPLICATION_NAME = os.getenv("FAST_API_APPLICATION_NAME")
+APPLICATION_VERSION = os.getenv("FAST_API_APPLICATION_VERSION")
+APP_DESCRIPTION = """
+Petriz API provides endpoints for the extensive and customizable search 
+of Petroleum related terms from a growing database of Petroleum and 
+Energy related terminologies.
+"""
 
 APP = {
-    "debug": str(os.getenv("DEBUG", "false")).lower() == "true",
-    "title": os.getenv("FAST_API_APPLICATION_NAME"),
-    "description": "Open source API provider for the SLB Glossary.",
-    "version": os.getenv("FAST_API_APPLICATION_VERSION"),
-    "redoc_url": None,
+    "debug": DEBUG,
+    "title": APPLICATION_NAME,
+    "description": APP_DESCRIPTION,
+    "version": APPLICATION_VERSION,
+    "redoc_url": "/api/redoc",
     "docs_url": "/api/docs",
-    "openapi_url": "/openapi.json",
+    "openapi_url": "/api/openapi.json",
     "contact": {"name": "Daniel Toluwalase Afolayan"},
     "license_info": {"name": "MIT", "url": "https://opensource.org/licenses/MIT"},
 }
@@ -31,38 +40,48 @@ DEFAULT_DEPENDENCIES = []
 
 INSTALLED_APPS = [
     "api",
-    "apps.accounts",
     "apps.tokens",
+    "apps.accounts",
     "apps.clients",
     "apps.search",
     "apps.audits",
 ]
 
 
-get_driver_postgres_url = functools.partial(
+get_driver_url = functools.partial(
     get_database_url,
     db_type="postgresql",
-    db_name=os.getenv("DB_NAME"),
-    db_user=os.getenv("DB_USER"),
-    db_password=os.getenv("DB_PASSWORD"),
-    db_host=os.getenv("DB_HOST"),
-    db_port=os.getenv("DB_PORT"),
+    db_name=str(os.getenv("DB_NAME")),
+    db_user=str(os.getenv("DB_USER")),
+    db_password=str(os.getenv("DB_PASSWORD")),
+    db_host=str(os.getenv("DB_HOST")),
+    db_port=str(os.getenv("DB_PORT")),
 )
 
 
 SQLALCHEMY = {
     "engine": {
-        "url": get_driver_postgres_url(db_driver="psycopg2"),
+        "url": get_driver_url(db_driver="psycopg2"),
         "future": True,
         "connect_args": {},
+        "echo": False,
+        "pool_size": 20,
+        "max_overflow": 0,
+        "pool_pre_ping": True,
+        "pool_recycle": 3600,
     },
     "async_engine": {
-        "url": get_driver_postgres_url(db_driver="asyncpg"),
+        "url": get_driver_url(db_driver="asyncpg"),
         "future": True,
         "connect_args": {},
     },
     "sessionmaker": {
-        "sync": {"autocommit": False, "autoflush": False, "future": True},
+        "sync": {
+            "autocommit": False,
+            "autoflush": False,
+            "future": True,
+            "expire_on_commit": False,
+        },
         "async": {
             "autocommit": False,
             "autoflush": False,
@@ -89,8 +108,31 @@ TIMEZONE = "UTC"
 AUTH_USER_MODEL = "accounts.Account"
 
 MIDDLEWARE = [
+    "helpers.fastapi.requests.middlewares.MaintenanceMiddleware",
+    (
+        "starlette.middleware.cors.CORSMiddleware",
+        {
+            "allow_origins": ["*"],
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        },
+    ),
+    "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
     "helpers.fastapi.middlewares.core.RequestProcessTimeMiddleware",
-    "api.middlewares.auditing.RequestEventLogMiddleware",
+    (
+        "starlette.middleware.gzip.GZipMiddleware",
+        {
+            "minimum_size": 500,
+            "compresslevel": 9,
+        },
+    ),
+    (
+        "api.middlewares.auditing.ConnectionEventLogMiddleware",
+        {
+            "exclude": [r"^/api/.+/audits.+$"],
+        },
+    ),
     *default_settings.MIDDLEWARE,
     "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
 ]
@@ -140,4 +182,8 @@ SENSITIVE_HEADERS = {
     *default_settings.SENSITIVE_HEADERS,
 }
 
-LOG_REQUEST_EVENTS = os.getenv("LOG_REQUEST_EVENTS", False) # Enable/disable request event logging
+LOG_CONNECTION_EVENTS = (
+    os.getenv("LOG_CONNECTION_EVENTS", "False").lower() == "true"
+)  # Enable/disable request event logging
+
+MAINTENANCE_MODE = {"status": False, "message": "default:techno"}

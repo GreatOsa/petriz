@@ -14,12 +14,12 @@ async def check_auth_token_for_account_exists(
     exists = await session.execute(
         sa.select(sa.exists().where(AuthToken.account_id == account.id))
     )
-    return exists.scalar()
+    return exists.scalar_one()
 
 
 async def create_auth_token(session: AsyncSession, account: Account) -> AuthToken:
     """Create a new auth token for an account."""
-    auth_token = AuthToken(account_id=account.id)
+    auth_token = AuthToken(account_id=account.id) # type: ignore
     session.add(auth_token)
     return auth_token
 

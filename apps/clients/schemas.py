@@ -74,9 +74,7 @@ class APIClientBaseSchema(pydantic.BaseModel):
 class APIClientCreateSchema(APIClientBaseSchema):
     """API Client creation schema."""
 
-    client_type: APIClient.ClientType = pydantic.Field(
-        description="API Client type", strip=True
-    )
+    client_type: APIClient.ClientType = pydantic.Field(description="API Client type")
 
     @pydantic.field_validator("client_type", mode="before")
     @classmethod
@@ -90,9 +88,7 @@ class APIClientSimpleSchema(APIClientBaseSchema):
     """API Client simple schema. For serialization purposes only."""
 
     uid: pydantic.StrictStr = pydantic.Field(description="API Client UID")
-    client_type: APIClient.ClientType = pydantic.Field(
-        description="API Client type", strip=True
-    )
+    client_type: APIClient.ClientType = pydantic.Field(description="API Client type")
 
     @pydantic.field_validator("client_type", mode="before")
     @classmethod
@@ -109,10 +105,7 @@ class APIClientSchema(APIClientBaseSchema):
     """API Client schema. For serialization purposes only."""
 
     uid: pydantic.StrictStr = pydantic.Field(description="API Client UID")
-    client_type: APIClient.ClientType = pydantic.Field(
-        description="API Client type",
-        strip=True,
-    )
+    client_type: APIClient.ClientType = pydantic.Field(description="API Client type")
     api_key: typing.Optional[APIKeySchema] = pydantic.Field(
         default=None, description="API Key"
     )

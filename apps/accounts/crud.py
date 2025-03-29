@@ -15,7 +15,7 @@ async def check_account_name_exists(session: AsyncSession, name: str) -> bool:
             )
         )
     )
-    return exists.scalar()
+    return exists.scalar_one()
 
 
 async def check_account_exists(session: AsyncSession, email: str) -> bool:
@@ -28,14 +28,14 @@ async def check_account_exists(session: AsyncSession, email: str) -> bool:
             )
         )
     )
-    return exists.scalar()
+    return exists.scalar_one()
 
 
 async def create_account(
     session: AsyncSession, email: str, name: str, password: str
 ) -> Account:
     """Create a new account."""
-    account = Account(email=email, name=name)
+    account = Account(email=email, name=name) # type: ignore
     account.set_password(password)
     session.add(account)
     return account

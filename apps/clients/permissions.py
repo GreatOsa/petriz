@@ -3,10 +3,11 @@ import typing
 import pydantic
 from pydantic_core._pydantic_core import PydanticCustomError
 import re
+from string import Template
 from typing_extensions import Doc
 
 from .models import APIClient
-from helpers.generics.utils.caching import tlru_cache
+from helpers.generics.utils.caching import lru_cache
 
 
 class PermissionScope(Enum):
@@ -27,6 +28,7 @@ perm_part_re = re.compile(r"^\w+|\*$")
 """Regex pattern for permission parts."""
 
 
+@lru_cache
 def is_permission_string(permission: str) -> bool:
     """Check if a string is a valid permission string."""
     return bool(permission_re.match(permission))
@@ -119,7 +121,7 @@ class PermissionSchema(PermissionBaseSchema):
         try:
             return cls.model_construct(**extract_permission_data(permission))
         except ValueError as exc:
-            raise PydanticCustomError("validation_error", str(exc))
+            raise PydanticCustomError("validation_error", str(exc))  # type: ignore
 
     def to_regex(self) -> re.Pattern:
         """Convert a Permission object to a regex pattern."""
@@ -132,7 +134,7 @@ class PermissionSchema(PermissionBaseSchema):
         )
 
 
-@tlru_cache
+@lru_cache
 def extract_permission_data(permission: str) -> typing.Dict[str, typing.Any]:
     """Extract permission data from a permission string."""
     if not (match := permission_re.match(permission)):
@@ -239,7 +241,7 @@ def has_permissions(client: APIClient, *permissions: str) -> bool:
     return check_permissions(client, *resolve_permissions(*permissions))
 
 
-@tlru_cache
+@lru_cache
 def load_permissions(*permissions: str) -> typing.Set[PermissionSchema]:
     """
     Load permissions from strings.

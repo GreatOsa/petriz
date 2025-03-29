@@ -15,7 +15,7 @@ def generate_account_uid() -> str:
     return generate_uid(prefix="petriz_account_")
 
 
-class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser):
+class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser): # type: ignore
     """Model representing a user account."""
 
     __tablename__ = "accounts__client_accounts"

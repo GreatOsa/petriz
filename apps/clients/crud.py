@@ -38,7 +38,7 @@ async def check_api_client_name_exists(
     if account:
         filters.append(APIClient.account_id == account.id)
     exists = await session.execute(sa.select(sa.exists().where(*filters)))
-    return exists.scalar()
+    return exists.scalar_one()
 
 
 async def check_account_can_create_more_clients(
@@ -50,7 +50,7 @@ async def check_account_can_create_more_clients(
             ~APIClient.is_deleted,
         )
     )
-    return client_count.scalar() < Account.MAX_CLIENT_COUNT
+    return client_count.scalar_one() < Account.MAX_CLIENT_COUNT
 
 
 async def create_api_client(
@@ -71,10 +71,10 @@ async def create_api_client(
         kwargs["client_type"] = APIClient.ClientType.USER
 
     api_client = APIClient(
-        name=name,
-        account=account,
+        name=name, # type: ignore
+        account=account, # type: ignore
         **kwargs,
-    )
+    ) 
     session.add(api_client)
     return api_client
 
@@ -175,7 +175,7 @@ async def check_api_key_for_client_exists(
             )
         )
     )
-    return exists
+    return exists.scalar_one()
 
 
 async def create_api_key(
@@ -185,8 +185,8 @@ async def create_api_key(
 ) -> APIKey:
     """Create a new api key for the API client."""
     api_key = APIKey(
-        client_id=client.id,
-        valid_until=valid_until,
+        client_id=client.id, # type: ignore
+        valid_until=valid_until, # type: ignore
     )
     session.add(api_key)
     return api_key

@@ -1,6 +1,6 @@
 **/__pycache__/
 /test_server.py
 /.env
-/.env.dev.local
-/.env.dev.production
+/.env.development
+/.env.staging
 venv/
