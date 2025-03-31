@@ -15,7 +15,7 @@ def generate_account_uid() -> str:
     return generate_uid(prefix="petriz_account_")
 
 
-class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser): # type: ignore
+class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser):  # type: ignore
     """Model representing a user account."""
 
     __tablename__ = "accounts__client_accounts"
@@ -82,6 +82,12 @@ class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser): # type: ignore
         uselist=True,
         doc="Search history of the account",
     )
+    quizzes = orm.relationship(
+        "Quiz",
+        back_populates="created_by",
+        uselist=True,
+        doc="Quizzes created by the account",
+    )
 
     USERNAME_FIELD = "name"
     REQUIRED_FIELDS = {
@@ -90,6 +96,14 @@ class Account(mixins.UUID7PrimaryKeyMixin, AbstractUser): # type: ignore
     }
 
     MAX_CLIENT_COUNT = 5
+
+    @orm.validates("name")
+    def validate_name(self, key: str, value: str) -> str:
+        """Validates the account name"""
+        name = value.strip()
+        if not name:
+            raise ValueError("Account name cannot be empty")
+        return name
 
 
 __all__ = ["Account"]

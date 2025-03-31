@@ -28,7 +28,14 @@ def generate_permission_uid() -> str:
     return generate_uid(prefix="petriz_permission_")
 
 
-class APIClient(
+class ClientType(enum.StrEnum):
+    INTERNAL = "internal"
+    PUBLIC = "public"
+    PARTNER = "partner"
+    USER = "user"
+
+
+class APIClient(  # type: ignore
     mixins.UUID7PrimaryKeyMixin,
     mixins.TimestampMixin,
     models.Model,
@@ -36,12 +43,6 @@ class APIClient(
     """Model representing a registered API client"""
 
     __auto_tablename__ = True
-
-    class ClientType(enum.StrEnum):
-        INTERNAL = "internal"
-        PUBLIC = "public"
-        PARTNER = "partner"
-        USER = "user"
 
     uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
         sa.String(50),
@@ -52,7 +53,7 @@ class APIClient(
     name: orm.Mapped[typing.Annotated[str, LowerCase, MaxLen(50)]] = orm.mapped_column(
         sa.Unicode(50)
     )
-    description: orm.Mapped[typing.Annotated[str, MaxLen(500)]] = sa.Column(
+    description: orm.Mapped[typing.Annotated[str, MaxLen(500)]] = orm.mapped_column(
         sa.String(500), nullable=True
     )
     account_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
@@ -60,18 +61,19 @@ class APIClient(
         sa.ForeignKey("accounts__client_accounts.id", ondelete="CASCADE"),
         nullable=True,
         index=True,
+        doc="ID of the account associated with the client.",
     )
     client_type: orm.Mapped[str] = orm.mapped_column(
-        sa.String(50), nullable=False, index=True
+        sa.String(20), nullable=False, index=True, default=ClientType.PUBLIC.value
     )
     disabled: orm.Mapped[bool] = orm.mapped_column(
         default=False, index=True, insert_default=False
     )
-    permissions: orm.Mapped[typing.List[str]] = orm.mapped_column(
-        sa.ARRAY(sa.String, dimensions=1), nullable=True
+    permissions: orm.Mapped[typing.List[typing.Annotated[str, MaxLen(255)]]] = (
+        orm.mapped_column(sa.ARRAY(sa.String(255), dimensions=1), nullable=True)
     )
-    permissions_modified_at: orm.Mapped[typing.Optional[datetime.datetime]] = sa.Column(
-        sa.DateTime(timezone=True), nullable=True, index=True
+    permissions_modified_at: orm.Mapped[typing.Optional[datetime.datetime]] = (
+        orm.mapped_column(sa.DateTime(timezone=True), nullable=True, index=True)
     )
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
         default=False, index=True, insert_default=False
@@ -81,6 +83,11 @@ class APIClient(
         sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
+        doc="ID of the user who created the client.",
+    )
+
+    __table_args__ = (
+        sa.Index("ix_api_clients_client_type_account_id", "client_type", "account_id"),
     )
 
     ######### Relationships #############
@@ -100,8 +107,14 @@ class APIClient(
         sa.desc("created_at"),
     ]
 
+    @orm.validates("client_type")
+    def validate_client_type(self, key: str, value: str) -> str:
+        if value not in ClientType.__members__.values():
+            raise ValueError(f"Invalid client type: {value}")
+        return value
 
-class APIKey(
+
+class APIKey(  # type: ignore
     mixins.TimestampMixin,
     mixins.UUID7PrimaryKeyMixin,
     models.Model,
@@ -129,7 +142,9 @@ class APIKey(
         index=True,
         unique=True,
     )
-    valid_until = sa.Column(sa.DateTime(timezone=True), nullable=True, default=None)
+    valid_until: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True), nullable=True, default=None
+    )
 
     ########## Relationships ############
 
@@ -150,6 +165,21 @@ class APIKey(
         if not self.valid_until:
             return self.active
         return self.active and timezone.now() < self.valid_until
+
+    @orm.validates("valid_until")
+    def validate_valid_until(
+        self, key: str, value: datetime.datetime
+    ) -> datetime.datetime:
+        if value and value < timezone.now():
+            raise ValueError("valid_until must be in the future")
+        return value
+
+    @orm.validates("secret")
+    def validate_secret(self, key: str, value: str) -> str:
+        secret = value.strip()
+        if not secret:
+            raise ValueError("secret must not be empty")
+        return secret
 
 
 __all__ = [

@@ -7,16 +7,16 @@ from helpers.fastapi.utils import timezone
 from helpers.fastapi.utils.sync import async_to_sync
 from helpers.fastapi.sqlalchemy.setup import get_async_session
 from . import crud
-from .models import APIClient
+from .models import ClientType
 from .permissions import ALLOWED_PERMISSIONS_SETS
 
 
 AVAILABLE_CLIENT_TYPES = ["internal", "public", "partner"]
 
 
-def _client_type(ctx, param, client_type) -> APIClient.ClientType:
-    """Convert client type string to APIClient.ClientType"""
-    return APIClient.ClientType(client_type)
+def _client_type(ctx, param, client_type) -> ClientType:
+    """Convert client type string to ClientType"""
+    return ClientType(client_type)
 
 
 @commands.register("create_client")
@@ -36,7 +36,7 @@ def _client_type(ctx, param, client_type) -> APIClient.ClientType:
 )
 @async_to_sync
 async def create_client(
-    client_type: APIClient.ClientType,
+    client_type: ClientType,
     secret_validity_seconds: typing.Optional[float] = None,
 ):
     """Create an API Client with the specified client type."""

@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.accounts",
     "apps.clients",
     "apps.search",
+    "apps.quizzes",
     "apps.audits",
 ]
 
@@ -187,3 +188,4 @@ LOG_CONNECTION_EVENTS = (
 )  # Enable/disable request event logging
 
 MAINTENANCE_MODE = {"status": False, "message": "default:techno"}
+ANYIO_MAX_WORKER_THREADS = 100

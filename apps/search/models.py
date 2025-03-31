@@ -1,6 +1,7 @@
 import datetime
 import typing
 import uuid
+import multiprocessing
 from annotated_types import MaxLen
 import sqlalchemy as sa
 from sqlalchemy import orm
@@ -82,8 +83,9 @@ class Topic(mixins.TimestampMixin, models.Model):
     )
 
     terms: orm.Mapped[typing.List["Term"]] = orm.relationship(
-        secondary=TermToTopicAssociation.__table__,
+        secondary=TermToTopicAssociation.__table__, # type: ignore
         back_populates="topics",
+        lazy="selectin",
         doc="The terms that belong to the topic",
     )
 
@@ -119,6 +121,7 @@ class TermSource(mixins.TimestampMixin, models.Model):
         nullable=False,
         default=False,
         insert_default=False,
+        index=True,
         doc="Whether the source has been deleted",
     )
 
@@ -126,6 +129,7 @@ class TermSource(mixins.TimestampMixin, models.Model):
         back_populates="source",
         doc="The terms obtained from the source",
         single_parent=True,
+        lazy="selectin",
     )
 
     DEFAULT_ORDERING = (sa.asc(name),)
@@ -170,8 +174,9 @@ class Term(mixins.TimestampMixin, models.Model):
         doc="The search vector for the term",
     )
     topics: orm.Mapped[typing.Set[Topic]] = orm.relationship(
-        secondary=TermToTopicAssociation.__table__,
+        secondary=TermToTopicAssociation.__table__, # type: ignore
         back_populates="terms",
+        lazy="selectin",
         doc="The topics the term belongs to",
     )
     grammatical_label: orm.Mapped[
@@ -208,12 +213,14 @@ class Term(mixins.TimestampMixin, models.Model):
     views: orm.Mapped[typing.List["TermView"]] = orm.relationship(
         back_populates="term",
         doc="The views of the term",
+        lazy="dynamic",
     )
     relatives: orm.Mapped[typing.Set["Term"]] = orm.relationship(
-        secondary=RelatedTermAssociation.__table__,
+        secondary=RelatedTermAssociation.__table__, # type: ignore
         primaryjoin=lambda: RelatedTermAssociation.term_id == Term.id,
         secondaryjoin=lambda: RelatedTermAssociation.related_term_id == Term.id,
         back_populates="relatives",
+        lazy="selectin",
         doc="The terms related to this term",
     )
 
@@ -224,7 +231,9 @@ class Term(mixins.TimestampMixin, models.Model):
 
     __table_args__ = (
         sa.Index("ix_terms_search_tsvector", search_tsvector, postgresql_using="gin"),
-        sa.UniqueConstraint("name", "source_id"), # Term names should be unique within a source
+        sa.UniqueConstraint(
+            "name", "source_id"
+        ),  # Term names should be unique within a source
     )
 
 
@@ -274,7 +283,7 @@ class SearchRecordToTopicAssociation(models.Model):
     )
 
 
-class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model):
+class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model): # type: ignore
     """Model representing a search record by a client or account"""
 
     __auto_tablename__ = True
@@ -295,7 +304,7 @@ class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model):
         doc="The search vector for the query",
     )
     topics: orm.Mapped[typing.Set[Topic]] = orm.relationship(
-        secondary=SearchRecordToTopicAssociation.__table__,
+        secondary=SearchRecordToTopicAssociation.__table__, # type: ignore
         doc="The topics that were searched for",
     )
     account_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
@@ -452,16 +461,20 @@ SEARCH_DDLS = (
 
 def execute_search_ddls():
     """Execute search-related DDL statements once during application startup."""
-    try:
-        with setup.engine.begin() as conn:
-            # Execute DDLs in transaction
-            for ddl in SEARCH_DDLS:
-                conn.execute(ddl)
-            conn.execute(sa.text("COMMIT"))
-        logger.info("Successfully executed search DDL statements")
-    except Exception as exc:
-        logger.error(f"Failed to execute search DDL statements: {exc}")
-        raise
+    # Prevents multiple workers from executing DDLs concurrently which
+    # may trigger deadlocks from the process trying to acquire AccessExclusiveLock
+    # on the same database object(table) at the same time
+    with multiprocessing.Lock(): 
+        try:
+            with setup.engine.begin() as conn:
+                # Execute DDLs in transaction
+                for ddl in SEARCH_DDLS:
+                    conn.execute(ddl)
+                conn.execute(sa.text("COMMIT"))
+            logger.info("Successfully executed search DDL statements")
+        except Exception as exc:
+            logger.error(f"Failed to execute search DDL statements: {exc}")
+            raise
 
 
 __all__ = ["Topic", "Term", "SearchRecord", "execute_search_ddls"]

@@ -10,6 +10,7 @@ from helpers.fastapi.requests.query import OrderingExpressions
 
 from .models import (
     APIClient,
+    ClientType,
     APIKey,
     generate_api_key_secret,
 )
@@ -68,7 +69,7 @@ async def create_api_client(
         )
 
     if account:
-        kwargs["client_type"] = APIClient.ClientType.USER
+        kwargs["client_type"] = ClientType.USER
 
     api_client = APIClient(
         name=name, # type: ignore

@@ -22,6 +22,13 @@ class IdentifierRelatedTOTP(TimeBasedOTP):
         sa.String(255), nullable=False, index=True
     )
 
+    @orm.validates("identifier")
+    def validate_identifier(self, key, value):
+        identifier = value.strip()
+        if not identifier:
+            raise ValueError("Identifier cannot be empty.")
+        return identifier
+
 
 class AccountRelatedTOTP(TimeBasedOTP):
     """Account related Time Based OTP model"""
@@ -41,7 +48,7 @@ def generate_auth_token_secret() -> str:
     return generate_uid(prefix="petriz_authtoken_")
 
 
-class AuthToken( # type: ignore
+class AuthToken(  # type: ignore
     mixins.TimestampMixin,
     mixins.UUID7PrimaryKeyMixin,
     models.Model,
@@ -84,3 +91,18 @@ class AuthToken( # type: ignore
         if not self.valid_until:
             return is_active
         return is_active and timezone.now() < self.valid_until
+
+    @orm.validates("valid_until")
+    def validate_valid_until(
+        self, key: str, value: datetime.datetime
+    ) -> datetime.datetime:
+        if value and value < timezone.now():
+            raise ValueError("Valid until must be a future date.")
+        return value
+
+    @orm.validates("secret")
+    def validate_secret(self, key: str, value: str) -> str:
+        secret = value.strip()
+        if not secret:
+            raise ValueError("Secret cannot be empty.")
+        return secret

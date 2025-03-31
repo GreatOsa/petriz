@@ -10,7 +10,7 @@ from helpers.fastapi.sqlalchemy.setup import get_async_session
 from helpers.fastapi.security.token import HTTPToken
 
 from apps.tokens import auth_tokens
-from apps.clients.models import APIClient
+from apps.clients.models import APIClient, ClientType
 from .authorization import AuthorizedAPIClient
 
 
@@ -72,7 +72,7 @@ async def check_authentication_credentials(
     if not isinstance(client, APIClient):
         return False
 
-    if client.client_type.lower() == APIClient.ClientType.USER:
+    if client.client_type.lower() == ClientType.USER:
         user = client.account
 
     else:

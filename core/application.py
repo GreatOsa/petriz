@@ -4,9 +4,11 @@ Defines project setup and initialization code
 All setup code should be defined in the `configure` function
 """
 
+import anyio
+import multiprocessing
 import os
 from contextlib import asynccontextmanager
-import threading
+import anyio.to_thread
 import redis.asyncio as async_pyredis
 import fastapi
 from fastapi_cache import FastAPICache
@@ -54,6 +56,12 @@ def initialize_project() -> None:
     install_router(base_router, router_name="base_router")
 
 
+def set_anyio_max_worker_threads(max_workers: int = 100) -> None:
+    """Set the maximum number of threads to be used by the anyio backend"""
+    limiter = anyio.to_thread.current_default_thread_limiter()
+    limiter.total_tokens = max_workers
+
+
 @asynccontextmanager
 async def lifespan(app: fastapi.FastAPI):
     """Application lifespan events"""
@@ -64,8 +72,11 @@ async def lifespan(app: fastapi.FastAPI):
     from apps.search.models import execute_search_ddls
     from api.caching import ORJsonCoder, request_key_builder
 
-    _lock = threading.Lock()
-    with _lock:
+    set_anyio_max_worker_threads(settings.ANYIO_MAX_WORKER_THREADS)
+    # Prevents deadlocks from multiple worker processes accessing lock
+    # protected resources concurrently when run the application with
+    # multiple workers
+    with multiprocessing.Lock():
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
         await configure_apps()
         execute_search_ddls()
@@ -92,7 +103,7 @@ async def lifespan(app: fastapi.FastAPI):
 
         finally:
             if persist_redis_data is False and FastAPICache._backend:
-                with _lock:
+                with multiprocessing.Lock():
                     await FastAPICache.clear()
 
 

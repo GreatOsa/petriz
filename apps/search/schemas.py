@@ -201,8 +201,21 @@ class TermUpdateSchema(TermBaseSchema):
     )
 
 
-class BaseTermSerializationSchema(TermBaseSchema):
-    uid: pydantic.StrictStr
+class BaseTermSchema(TermBaseSchema):
+    uid: typing.Annotated[pydantic.StrictStr, MaxLen(50)] = pydantic.Field(
+        ...,
+        description="The UID of the term",
+    )
+    verified: pydantic.StrictBool = pydantic.Field(
+        False,
+        description="Whether the term an its definition have been vetted and verified to be correct",
+    )
+    created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the term was created/added"
+    )
+    updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        description="The date and time the term was last updated"
+    )
 
     class Config:
         from_attributes = True
@@ -211,7 +224,7 @@ class BaseTermSerializationSchema(TermBaseSchema):
         return hash(self.uid)
 
 
-class TermSchema(BaseTermSerializationSchema):
+class TermSchema(BaseTermSchema):
     """Term schema. For serialization purposes only."""
 
     source: typing.Optional[TermSourceSchema] = pydantic.Field(
@@ -222,20 +235,10 @@ class TermSchema(BaseTermSerializationSchema):
         default_factory=set,
         description="The topics the term belongs to",
     )
-    verified: pydantic.StrictBool = pydantic.Field(
-        False,
-        description="Whether the term an its definition have been vetted and verified to be correct",
-    )
-    related: typing.Set[BaseTermSerializationSchema] = pydantic.Field(
+    related: typing.Set[BaseTermSchema] = pydantic.Field(
         alias="relatives",
         default_factory=set,
         description="The terms related to this term",
-    )
-    created_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
-        description="The date and time the term was created/added"
-    )
-    updated_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
-        description="The date and time the term was last updated"
     )
 
 

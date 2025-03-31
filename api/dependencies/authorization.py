@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpers.fastapi.dependencies.access_control import access_control
 from helpers.fastapi.sqlalchemy.setup import get_async_session
-from apps.clients.models import APIClient
+from apps.clients.models import APIClient, ClientType
 from apps.clients.crud import retrieve_api_client
 from apps.clients.permissions import resolve_permissions, check_permissions
 
@@ -136,15 +136,15 @@ Attaches the client object to the connection state if the client is authorized.
 """
 
 
-def is_internal_client(
+async def is_internal_client(
     credentials: typing.Optional[ClientCredentials],
     session: typing.Optional[AsyncSession],
 ) -> bool:
-    if not credentials or not check_client_credentials(credentials, session):
+    if not credentials or not await check_client_credentials(credentials, session):
         return False
 
     client: APIClient = credentials.connection.state.client
-    return client.client_type.lower() == APIClient.ClientType.INTERNAL
+    return client.client_type.lower() == ClientType.INTERNAL
 
 
 internal_api_clients_only = access_control(

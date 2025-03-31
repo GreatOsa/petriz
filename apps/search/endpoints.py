@@ -96,22 +96,32 @@ async def search_terms(
     )
     metadata = params.copy()
     metadata.pop("ordering", None)
-    query = query or None
-    topics = topics or None
-    source = source or None
 
     if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
+        topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
+    else:
+        topics_list = None
+
     if source:
         metadata["source"] = source
-        source = await crud.retrieve_term_source_by_name_or_uid(session, source)
-        if not source:
+        known_source = await crud.retrieve_term_source_by_name_or_uid(
+            session,
+            source,  # type: ignore
+        )
+        if not known_source:
             return response.bad_request("Invalid source provided")
+    else:
+        known_source = None
+
+    if query:
+        query_string = str(query)
+    else:
+        query_string = None
 
     async with crud.record_search(
         session,
-        query=query,
-        topics=topics,
+        query=query_string,
+        topics=topics_list,
         account=account,
         client=client,
         metadata=metadata,
@@ -121,9 +131,9 @@ async def search_terms(
 
         result = await crud.search_terms(
             session,
-            query=query,
-            topics=topics,
-            source=source,
+            query=query_string,
+            topics=topics_list,
+            source=known_source,
             **params,
         )
         response_data = [schemas.TermSchema.model_validate(term) for term in result]
@@ -188,7 +198,7 @@ async def create_term(
         session,
         **dumped_data,
         verified=getattr(user, "is_staff", False),
-        topics=set(topics or []), # type: ignore
+        topics=set(topics or []),  # type: ignore
     )
 
     await session.commit()
@@ -304,7 +314,7 @@ async def update_term(
     if topics_data:
         if data.replace_topics:
             term.topics.clear()
-        term.topics |= set(topics) # type: ignore
+        term.topics |= set(topics)  # type: ignore
 
     session.add(term)
     await session.commit()
@@ -525,10 +535,13 @@ async def retrieve_topic_terms(
         ordering=ordering,
     )
     if source:
-        source = await crud.retrieve_term_source_by_name_or_uid(session, source)
-        if not source:
+        known_source = await crud.retrieve_term_source_by_name_or_uid(
+            session,
+            source,  # type: ignore
+        )
+        if not known_source:
             return response.bad_request("Invalid source provided")
-        params["source"] = source
+        params["source"] = known_source
 
     terms = await crud.retrieve_topic_terms(
         session,
@@ -673,8 +686,8 @@ async def retrieve_source_terms(
         ordering=ordering,
     )
     if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
-        params["topics"] = topics
+        topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
+        params["topics"] = topics_list
 
     terms = await crud.retrieve_term_source_terms(
         session,
@@ -802,8 +815,8 @@ async def retrieve_account_search_history(
         offset=offset,
     )
     if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
-        params["topics"] = topics
+        topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
+        params["topics"] = topics_list
 
     search_history = await crud.retrieve_account_search_history(
         session,
@@ -864,8 +877,8 @@ async def delete_account_search_history(
         timestamp_lte=timestamp_lte,
     )
     if topics:
-        topics = await crud.retrieve_topics_by_name_or_uid(session, topics)
-        params["topics"] = topics
+        topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
+        params["topics"] = topics_list
 
     deleted_records_count = await crud.delete_account_search_history(
         session,

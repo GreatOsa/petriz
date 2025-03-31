@@ -51,7 +51,7 @@ class AuditLogEntryCreateSchema(AuditLogEntryBaseSchema):
 class AuditLogEntrySchema(AuditLogEntryBaseSchema):
     """Schema for an audit log entry serialization/deserialization."""
 
-    uid: typing.Annotated[str, pydantic.StringConstraints(max_length=50)]
+    uid: typing.Annotated[pydantic.StrictStr, pydantic.StringConstraints(max_length=50)]
     created_at: pydantic.AwareDatetime
     updated_at: typing.Optional[pydantic.AwareDatetime]
 

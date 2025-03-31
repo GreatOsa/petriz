@@ -33,6 +33,7 @@ fastapi-cache2 = "^0.2.2"
 orjson = "^3.10.15"
 click = "^8.1.8"
 httptools = "^0.6.4"
+langchain = "^0.3.21"
 
 
 [tool.poetry.group.dev.dependencies]

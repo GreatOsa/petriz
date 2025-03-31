@@ -1,7 +1,10 @@
+from re import A
 import typing
+from typing_extensions import Doc
 import pydantic
 
 from helpers.fastapi.config import settings
+from helpers.generics.pydantic import partial
 
 
 class AccountRegistrationInitiationSchema(pydantic.BaseModel):
@@ -105,25 +108,35 @@ class PasswordResetCompletionSchema(pydantic.BaseModel):
     )
 
 
-class AccountSchema(pydantic.BaseModel):
+class AccountBaseSchema(pydantic.BaseModel):
     """Account schema For serialization purposes only."""
+
+    name: typing.Annotated[
+        str,
+        pydantic.StringConstraints(strip_whitespace=True, max_length=50, min_length=1),
+        Doc("Account name"),
+    ]
+
+
+class BaseAccountSchema(AccountBaseSchema):
+    """Base account schema. For serialization purposes only."""
 
     uid: pydantic.StrictStr = pydantic.Field(
         title="Account UID",
         description="Unique identifier for the account",
         frozen=True,
     )
-    name: typing.Optional[
-        typing.Annotated[
-            str,
-            pydantic.StringConstraints(
-                strip_whitespace=True, max_length=50, min_length=1
-            ),
-        ]
-    ] = pydantic.Field(
-        None,
-        title="Account name",
-    )
+
+    class Config:
+        from_attributes = True
+
+    def __hash__(self) -> int:
+        return hash(self.uid)
+
+
+class AccountSchema(BaseAccountSchema):
+    """Account schema. For serialization purposes only."""
+
     email: typing.Annotated[
         pydantic.EmailStr,
         pydantic.StringConstraints(to_lower=True, strip_whitespace=True),
@@ -143,24 +156,12 @@ class AccountSchema(pydantic.BaseModel):
         description="Account update date and time",
     )
 
-    class Config:
-        from_attributes = True
 
-
-class AccountUpdateSchema(pydantic.BaseModel):
+@partial
+class AccountUpdateSchema(AccountBaseSchema):
     """Schema for updating an account."""
 
-    name: typing.Optional[
-        typing.Annotated[
-            str,
-            pydantic.StringConstraints(
-                strip_whitespace=True, max_length=50, min_length=1
-            ),
-        ]
-    ] = pydantic.Field(
-        None,
-        title="Account name",
-    )
+    pass
 
 
 class PasswordChangeSchema(pydantic.BaseModel):

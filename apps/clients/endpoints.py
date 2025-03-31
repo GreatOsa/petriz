@@ -15,7 +15,7 @@ from api.dependencies.authorization import (
 )
 from api.dependencies.auditing import event
 from api.dependencies.authentication import authentication_required
-from apps.clients.models import APIClient
+from apps.clients.models import ClientType
 from apps.accounts.models import Account
 from . import schemas, crud
 from .query import APIClientOrdering
@@ -57,7 +57,7 @@ async def create_client(
     session: AsyncDBSession,
     account: ActiveUser[Account],
 ):
-    is_user_client = data.client_type == APIClient.ClientType.USER
+    is_user_client = data.client_type == ClientType.USER
     if is_user_client:
         can_create_more_clients = await crud.check_account_can_create_more_clients(
             session, account
@@ -116,16 +116,16 @@ async def retrieve_clients(
     account: ActiveUser[Account],
     ordering: APIClientOrdering,
     client_type: typing.Annotated[
-        typing.Optional[APIClient.ClientType],
+        typing.Optional[ClientType],
         fastapi.Query(description="API client type"),
     ] = None,
     limit: typing.Annotated[Limit, Le(100)] = 100,
     offset: Offset = 0,
 ):
     filters: typing.Dict[str, typing.Any] = {"limit": limit, "offset": offset}
-    client_type = client_type or APIClient.ClientType.USER
+    client_type = client_type or ClientType.USER
 
-    if client_type == APIClient.ClientType.USER:
+    if client_type == ClientType.USER:
         filters["account_id"] = account.id
     else:
         if not account.is_admin:
@@ -172,7 +172,7 @@ async def retrieve_client(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
 
     api_client = await crud.retrieve_api_client(session, **filters)
@@ -204,7 +204,7 @@ async def update_client(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
     api_client = await crud.retrieve_api_client(session, **filters)
     if not api_client:
@@ -250,7 +250,7 @@ async def bulk_delete_clients(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
     api_clients = await crud.retrieve_api_clients_by_uid(session, **filters)
     if not api_clients:
@@ -287,7 +287,7 @@ async def delete_client(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
     api_client = await crud.retrieve_api_client(session, **filters)
     if not api_client:
@@ -320,7 +320,7 @@ async def refresh_client_api_secret(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
     api_client = await crud.retrieve_api_client(session, **filters)
     if not api_client:
@@ -357,7 +357,7 @@ async def update_client_permissions(
     if not account.is_admin:
         filters = {
             "account_id": account.id,
-            "client_type": APIClient.ClientType.USER,
+            "client_type": ClientType.USER,
         }
 
     api_client = await crud.retrieve_api_client(session, **filters)

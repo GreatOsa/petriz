@@ -68,6 +68,12 @@ v1_router.include_router(
     dependencies=DEFAULT_CLIENT_DEPENDENCIES,
 )
 v1_router.include_router(
+    path("apps.quizzes.endpoints"),
+    prefix="/quizzes",
+    tags=["quizzes"],
+    dependencies=DEFAULT_CLIENT_DEPENDENCIES,
+)
+v1_router.include_router(
     path("apps.audits.endpoints"),
     prefix="/audits",
     tags=["audits"],

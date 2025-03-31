@@ -3,7 +3,7 @@ import typing
 from starlette.requests import HTTPConnection
 
 from helpers.fastapi.requests.throttling import NoLimit, throttle
-from apps.clients.models import APIClient
+from apps.clients.models import APIClient, ClientType
 
 
 async def client_identifier(connection: HTTPConnection):
@@ -22,28 +22,28 @@ def anonymous_client_identifier(connection: HTTPConnection):
 
 async def internal_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type.lower() != APIClient.ClientType.INTERNAL:
+    if not client or client.client_type.lower() != ClientType.INTERNAL:
         raise NoLimit()
     return f"client:internal:{client.uid}:{connection.scope['path']}"
 
 
 async def user_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type.lower() != APIClient.ClientType.USER:
+    if not client or client.client_type.lower() != ClientType.USER:
         raise NoLimit()
     return f"client:user:{client.uid}:{connection.scope['path']}"
 
 
 async def public_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type.lower() != APIClient.ClientType.PUBLIC:
+    if not client or client.client_type.lower() != ClientType.PUBLIC:
         raise NoLimit()
     return f"client:public:{client.uid}:{connection.scope['path']}"
 
 
 async def partner_client_identifier(connection: HTTPConnection):
     client: typing.Optional[APIClient] = getattr(connection.state, "client", None)
-    if not client or client.client_type.lower() != APIClient.ClientType.PARTNER:
+    if not client or client.client_type.lower() != ClientType.PARTNER:
         raise NoLimit()
     return f"client:partner:{client.uid}:{connection.scope['path']}"
 
