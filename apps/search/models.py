@@ -83,7 +83,7 @@ class Topic(mixins.TimestampMixin, models.Model):
     )
 
     terms: orm.Mapped[typing.List["Term"]] = orm.relationship(
-        secondary=TermToTopicAssociation.__table__, # type: ignore
+        secondary=TermToTopicAssociation.__table__,  # type: ignore
         back_populates="topics",
         lazy="selectin",
         doc="The terms that belong to the topic",
@@ -170,11 +170,10 @@ class Term(mixins.TimestampMixin, models.Model):
     search_tsvector = orm.mapped_column(
         TSVECTOR,
         nullable=True,
-        index=True,
         doc="The search vector for the term",
     )
     topics: orm.Mapped[typing.Set[Topic]] = orm.relationship(
-        secondary=TermToTopicAssociation.__table__, # type: ignore
+        secondary=TermToTopicAssociation.__table__,  # type: ignore
         back_populates="terms",
         lazy="selectin",
         doc="The topics the term belongs to",
@@ -190,7 +189,7 @@ class Term(mixins.TimestampMixin, models.Model):
         nullable=False,
         default=False,
         index=True,
-        doc="Whether the term an its definition have been vetted and verified to be correct",
+        doc="Whether the term and its definition have been vetted and verified to be correct",
     )
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
         sa.Boolean,
@@ -216,7 +215,7 @@ class Term(mixins.TimestampMixin, models.Model):
         lazy="dynamic",
     )
     relatives: orm.Mapped[typing.Set["Term"]] = orm.relationship(
-        secondary=RelatedTermAssociation.__table__, # type: ignore
+        secondary=RelatedTermAssociation.__table__,  # type: ignore
         primaryjoin=lambda: RelatedTermAssociation.term_id == Term.id,
         secondaryjoin=lambda: RelatedTermAssociation.related_term_id == Term.id,
         back_populates="relatives",
@@ -283,7 +282,7 @@ class SearchRecordToTopicAssociation(models.Model):
     )
 
 
-class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model): # type: ignore
+class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model):  # type: ignore
     """Model representing a search record by a client or account"""
 
     __auto_tablename__ = True
@@ -300,11 +299,10 @@ class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model): # type: ignore
     query_tsvector = orm.mapped_column(
         TSVECTOR,
         nullable=True,
-        index=True,
         doc="The search vector for the query",
     )
     topics: orm.Mapped[typing.Set[Topic]] = orm.relationship(
-        secondary=SearchRecordToTopicAssociation.__table__, # type: ignore
+        secondary=SearchRecordToTopicAssociation.__table__,  # type: ignore
         doc="The topics that were searched for",
     )
     account_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
@@ -464,13 +462,12 @@ def execute_search_ddls():
     # Prevents multiple workers from executing DDLs concurrently which
     # may trigger deadlocks from the process trying to acquire AccessExclusiveLock
     # on the same database object(table) at the same time
-    with multiprocessing.Lock(): 
+    with multiprocessing.Lock(), setup.engine.begin() as conn:
         try:
-            with setup.engine.begin() as conn:
-                # Execute DDLs in transaction
-                for ddl in SEARCH_DDLS:
-                    conn.execute(ddl)
-                conn.execute(sa.text("COMMIT"))
+            # Execute DDLs in transaction
+            for ddl in SEARCH_DDLS:
+                conn.execute(ddl)
+            conn.execute(sa.text("COMMIT"))
             logger.info("Successfully executed search DDL statements")
         except Exception as exc:
             logger.error(f"Failed to execute search DDL statements: {exc}")

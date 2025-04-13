@@ -1,6 +1,7 @@
 import typing
 import fastapi
-import fastapi.params
+from fastapi.params import Depends, Param
+from pydantic.fields import FieldInfo
 from starlette.requests import HTTPConnection
 
 from helpers.fastapi.config import settings
@@ -13,6 +14,51 @@ class ConnectionEvent(typing.TypedDict):
     description: typing.Optional[str]
 
 
+def value_to_dependency(
+    value: typing.Any,
+    /,
+    *,
+    dependency_name: str,
+    dependency_type: typing.Type[fastapi.params.Depends],
+    dependency_type_args: typing.Tuple = (),
+    dependency_type_kwargs: typing.Mapping[str, typing.Any] = {},
+) -> fastapi.params.Depends:
+    """
+    Convert a value to a fastapi dependency.
+    This is useful for converting a constant value to a dependency that can be used in fastapi routes.
+
+    :param value: The value to convert to a dependency.
+    :param dependency_name: The name of the dependency.
+    :param dependency_type: The type of the dependency.
+    :param dependency_type_args: The arguments to pass to the dependency type.
+    :param dependency_type_kwargs: The keyword arguments to pass to the dependency type.
+    :return: A fastapi dependency that resolves to the value.
+    """
+
+    async def dependency() -> typing.Any:
+        return value
+
+    dependency.__name__ = dependency_name
+    dependency.__annotations__ = {dependency_name: value.__class__}
+    return dependency_type(
+        dependency,
+        *dependency_type_args,
+        **dependency_type_kwargs,
+    )
+
+
+def is_resolvable_dependency(
+    value: typing.Any,
+    /,
+) -> bool:
+    """Returns True if the value is a resolvable dependency, False otherwise."""
+    return (
+        isinstance(value, Param)
+        or isinstance(value, Depends)
+        or isinstance(value, FieldInfo)
+    )
+
+
 def event(
     event: str,
     /,
@@ -20,7 +66,7 @@ def event(
     target_uid: typing.Optional[typing.Any] = None,
     description: typing.Optional[str] = None,
     event_dependency_suffix: str = "request",
-) -> fastapi.params.Depends:
+) -> Depends:
     """
     Mark the connection for audit logging by attaching the event data to the connection state.
 
@@ -62,6 +108,18 @@ def event(
     :param description: A description of the event or action.
     :return: A fastapi dependency that attaches the event data to the connection state.
     """
+    if not is_resolvable_dependency(target):
+        target = value_to_dependency(
+            target,
+            dependency_name="target",
+            dependency_type=Depends,
+        )
+    if not is_resolvable_dependency(target_uid):
+        target_uid = value_to_dependency(
+            target_uid,
+            dependency_name="target_uid",
+            dependency_type=Depends,
+        )
 
     async def dependency(
         connection: HTTPConnection,

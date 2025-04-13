@@ -17,7 +17,8 @@ from fastapi_cache.backends.redis import RedisBackend
 from helpers.fastapi.config import settings, SETTINGS_ENV_VARIABLE
 
 NAME = "Petriz"
-ENVIRONMENT = os.getenv("ENVIRONMENT", "development")
+
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 if ENVIRONMENT == "development":
     SETTINGS_MODULE = "core.settings.development_settings"
 elif ENVIRONMENT == "staging":
@@ -70,6 +71,7 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.apps import configure_apps
     from helpers.fastapi.requests import throttling
     from apps.search.models import execute_search_ddls
+    from apps.quizzes.models import execute_quiz_ddls
     from api.caching import ORJsonCoder, request_key_builder
 
     set_anyio_max_worker_threads(settings.ANYIO_MAX_WORKER_THREADS)
@@ -80,6 +82,7 @@ async def lifespan(app: fastapi.FastAPI):
         bind_db_to_model_base(db_engine=engine, model_base=ModelBase)
         await configure_apps()
         execute_search_ddls()
+        execute_quiz_ddls()
 
     persist_redis_data = (
         app.debug is False

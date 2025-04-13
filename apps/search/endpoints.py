@@ -788,7 +788,7 @@ async def delete_term_source(
 async def retrieve_account_search_history(
     request: fastapi.Request,
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
         Topics,
@@ -820,7 +820,7 @@ async def retrieve_account_search_history(
 
     search_history = await crud.retrieve_account_search_history(
         session,
-        account=account,
+        account=user,
         **params,
     )
 
@@ -853,7 +853,7 @@ async def retrieve_account_search_history(
 )
 async def delete_account_search_history(
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     # Query parameters
     query: typing.Annotated[SearchQuery, MaxLen(100)],
     topics: typing.Annotated[
@@ -882,7 +882,7 @@ async def delete_account_search_history(
 
     deleted_records_count = await crud.delete_account_search_history(
         session,
-        account=account,
+        account=user,
         **params,
     )
 

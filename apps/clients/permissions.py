@@ -371,6 +371,24 @@ RESOURCES_PERMISSIONS = {
             "requires": None,
         },
     },
+    "questions": {
+        **DEFAULT_ACTIONS,
+        "attempt": {
+            "description": "Attempt a question",
+            "requires": {"update"},
+        },
+    },
+    "quizzes": {
+        **DEFAULT_ACTIONS,
+        "create": {
+            "description": "Create a new quiz",
+            "requires": {"update", "questions::*::create"},
+        },
+        "attempt": {
+            "description": "Attempt a quiz",
+            "requires": {"update", "questions::*::attempt"},
+        },
+    },
     "audit_log_entries": {
         "list": {
             "description": "List all audit log entries",

@@ -1,6 +1,7 @@
 import typing
 from annotated_types import Le
 import fastapi
+from sqlalchemy.exc import OperationalError
 
 from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
@@ -55,17 +56,17 @@ router = fastapi.APIRouter(
 async def create_client(
     data: schemas.APIClientCreateSchema,
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
 ):
     is_user_client = data.client_type == ClientType.USER
     if is_user_client:
         can_create_more_clients = await crud.check_account_can_create_more_clients(
-            session, account
+            session, user
         )
         if not can_create_more_clients:
             return response.bad_request("Maximum number of API clients reached!")
     else:
-        if not account.is_admin:
+        if not user.is_admin:
             return response.forbidden(
                 "You are not allowed to create this type of client!"
             )
@@ -75,15 +76,15 @@ async def create_client(
         if is_user_client:
             api_client = await crud.create_api_client(
                 session,
-                account=account,
-                created_by=account,
+                user=user,
+                created_by=user,
                 **data.model_dump(),
                 permissions=permissions,
             )
         else:
             api_client = await crud.create_api_client(
                 session,
-                created_by=account,
+                created_by=user,
                 **data.model_dump(),
                 permissions=permissions,
             )
@@ -100,12 +101,12 @@ async def create_client(
 
 @router.get(
     "",
-    description="Retrieve all API clients associated with the authenticated account.",
+    description="Retrieve all API clients associated with the authenticated user.",
     dependencies=[
         event(
             "api_client_list",
             target="api_clients",
-            description="Retrieve all API clients associated with the authenticated account.",
+            description="Retrieve all API clients associated with the authenticated user.",
         ),
         permissions_required("api_clients::*::list"),
     ],
@@ -113,7 +114,7 @@ async def create_client(
 async def retrieve_clients(
     request: fastapi.Request,
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     ordering: APIClientOrdering,
     client_type: typing.Annotated[
         typing.Optional[ClientType],
@@ -126,9 +127,9 @@ async def retrieve_clients(
     client_type = client_type or ClientType.USER
 
     if client_type == ClientType.USER:
-        filters["account_id"] = account.id
+        filters["account_id"] = user.id
     else:
-        if not account.is_admin:
+        if not user.is_admin:
             return response.forbidden(
                 "You are not allowed to access this type of client!"
             )
@@ -164,14 +165,14 @@ async def retrieve_clients(
 )
 async def retrieve_client(
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
-    filters = {"uid": client_uid}
+    filters: typing.Dict[str, typing.Any] = {"uid": client_uid}
     # If the user is not an admin, they can only view their own clients
-    if not account.is_admin:
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
 
@@ -197,16 +198,20 @@ async def retrieve_client(
 async def update_client(
     data: schemas.APIClientUpdateSchema,
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
-    if not account.is_admin:
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
-    api_client = await crud.retrieve_api_client(session, **filters)
+
+    async with capture.capture(
+        OperationalError, code=409, content="Can not update client due to conflict"
+    ):
+        api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 
@@ -244,12 +249,12 @@ async def update_client(
 async def bulk_delete_clients(
     data: schemas.APIClientBulkDeleteSchema,
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
 ):
     filters = {"uids": data.client_uids}
-    if not account.is_admin:
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
     api_clients = await crud.retrieve_api_clients_by_uid(session, **filters)
@@ -280,16 +285,20 @@ async def bulk_delete_clients(
 )
 async def delete_client(
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
-    if not account.is_admin:
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
-    api_client = await crud.retrieve_api_client(session, **filters)
+
+    async with capture.capture(
+        OperationalError, code=409, content="Can not delete client due to conflict"
+    ):
+        api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 
@@ -313,16 +322,20 @@ async def delete_client(
 )
 async def refresh_client_api_secret(
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
     filters = {"uid": client_uid}
-    if not account.is_admin:
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
-    api_client = await crud.retrieve_api_client(session, **filters)
+
+    async with capture.capture(
+        OperationalError, code=409, content="Can not update client due to conflict"
+    ):
+        api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 
@@ -349,18 +362,21 @@ async def refresh_client_api_secret(
 )
 async def update_client_permissions(
     session: AsyncDBSession,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     data: typing.List[PermissionCreateSchema],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
-    filters = {"uid": client_uid}
-    if not account.is_admin:
+    filters: typing.Dict[str, typing.Any] = {"uid": client_uid}
+    if not user.is_admin:
         filters = {
-            "account_id": account.id,
+            "account_id": user.id,
             "client_type": ClientType.USER,
         }
 
-    api_client = await crud.retrieve_api_client(session, **filters)
+    async with capture.capture(
+        OperationalError, code=409, content="Can not update client due to conflict"
+    ):
+        api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 

@@ -72,28 +72,30 @@ async def create_api_client(
         kwargs["client_type"] = ClientType.USER
 
     api_client = APIClient(
-        name=name, # type: ignore
-        account=account, # type: ignore
+        name=name,  # type: ignore
+        account=account,  # type: ignore
         **kwargs,
-    ) 
+    )
     session.add(api_client)
     return api_client
 
 
 async def retrieve_api_client(
-    session: AsyncSession, **filters
+    session: AsyncSession, for_update: bool = False, **filters
 ) -> typing.Optional[APIClient]:
     """
     Retrieve the first API client that matches the given filter from the DB.
     Eagerly load the associated api key and account (if any).
     """
+    query = sa.select(APIClient).filter_by(
+        is_deleted=False,
+        **filters,
+    )
+    if for_update:
+        query = query.with_for_update(nowait=True, read=True)
+
     result = await session.execute(
-        sa.select(APIClient)
-        .filter_by(
-            is_deleted=False,
-            **filters,
-        )
-        .options(joinedload(APIClient.api_key), joinedload(APIClient.account))
+        query.options(joinedload(APIClient.api_key), joinedload(APIClient.account))
     )
     return result.scalar_one_or_none()
 
@@ -186,8 +188,8 @@ async def create_api_key(
 ) -> APIKey:
     """Create a new api key for the API client."""
     api_key = APIKey(
-        client_id=client.id, # type: ignore
-        valid_until=valid_until, # type: ignore
+        client_id=client.id,  # type: ignore
+        valid_until=valid_until,  # type: ignore
     )
     session.add(api_key)
     return api_key

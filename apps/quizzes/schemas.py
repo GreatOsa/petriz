@@ -1,6 +1,7 @@
 import typing
 import pydantic
-from annotated_types import Interval, MaxLen
+from collections import Counter
+from annotated_types import Interval, MaxLen, MinLen
 
 from helpers.generics.pydantic import partial
 from apps.quizzes.models import QuestionDifficulty, QuizDifficulty
@@ -38,12 +39,6 @@ class QuestionBaseSchema(pydantic.BaseModel):
             ),
         ]
     ] = pydantic.Field(description="Question options", max_length=6)
-    correct_option_index: typing.Annotated[
-        pydantic.StrictInt,
-        Interval(ge=0, le=5),
-    ] = pydantic.Field(
-        description="Index of the correct option",
-    )
     difficulty: QuestionDifficulty = pydantic.Field(
         QuestionDifficulty.NOT_SET,
         description="Question difficulty",
@@ -56,14 +51,24 @@ class QuestionBaseSchema(pydantic.BaseModel):
 class QuestionCreateSchema(QuestionBaseSchema):
     """Question create schema."""
 
-    pass
+    correct_option_index: typing.Annotated[
+        pydantic.StrictInt,
+        Interval(ge=0, le=5),
+    ] = pydantic.Field(
+        description="Index of the correct option",
+    )
 
 
 @partial
 class QuestionUpdateSchema(QuestionBaseSchema):
     """Question update schema."""
 
-    pass
+    correct_option_index: typing.Annotated[
+        pydantic.StrictInt,
+        Interval(ge=0, le=5),
+    ] = pydantic.Field(
+        description="Index of the correct option",
+    )
 
 
 class BaseQuestionSchema(QuestionBaseSchema):
@@ -95,6 +100,29 @@ class QuestionSchema(BaseQuestionSchema):
     related_topics: typing.Set[TopicSchema] = pydantic.Field(
         description="Topics related to the question",
     )
+
+
+class QuestionWithAnswerSchema(QuestionSchema):
+    """Question schema. For serialization purposes only."""
+
+    correct_option_index: typing.Annotated[
+        pydantic.StrictInt,
+        Interval(ge=0, le=5),
+    ] = pydantic.Field(
+        description="Index of the correct option",
+    )
+
+
+def guess_quiz_difficulty(questions: typing.List[BaseQuestionSchema]) -> QuizDifficulty:
+    """Guess quiz difficulty based on questions."""
+    if not questions:
+        return QuizDifficulty.NOT_SET
+    if len(questions) == 1:
+        return QuizDifficulty(questions[0].difficulty.value)
+
+    difficulties = [q.difficulty.value for q in questions]
+    difficulty_counter = Counter(difficulties)
+    return QuizDifficulty(difficulty_counter.most_common(1)[0][0])
 
 
 class QuizBaseSchema(pydantic.BaseModel):
@@ -131,20 +159,26 @@ class QuizBaseSchema(pydantic.BaseModel):
         alias="data",
         default={},
         description="Quiz metadata",
-        union_mode="smart",
     )
+
+    @pydantic.field_validator("difficulty", mode="after")
+    def validate_difficulty(cls, v: QuizDifficulty, info) -> QuizDifficulty:
+        values = info.data
+        if v == QuizDifficulty.NOT_SET:
+            v = guess_quiz_difficulty(values.get("questions", []))
+        return v
 
 
 class QuizCreateSchema(QuizBaseSchema):
     """Quiz create schema."""
 
-    questions: typing.List[BaseQuestionSchema] = pydantic.Field(
-        description="Quiz questions",
+    questions: typing.List[typing.Union[QuestionCreateSchema, pydantic.StrictStr]] = (
+        pydantic.Field(description="Quiz questions", min_length=1, max_length=1000)
     )
 
 
 @partial
-class QuizUpdateSchema(QuizCreateSchema):
+class QuizUpdateSchema(QuizBaseSchema):
     """Quiz update schema."""
 
     pass
@@ -155,6 +189,15 @@ class BaseQuizSchema(QuizBaseSchema):
 
     uid: typing.Annotated[pydantic.StrictStr, MaxLen(50)] = pydantic.Field(
         description="Quiz unique identifier",
+    )
+    questions_count: typing.Optional[pydantic.StrictInt] = pydantic.Field(
+        default=None,
+        ge=0,
+        description="Number of quiz questions",
+    )
+    is_timed: pydantic.StrictBool = pydantic.Field(
+        default=False,
+        description="Is the quiz time constrained?",
     )
     created_at: pydantic.AwareDatetime = pydantic.Field(
         description="Quiz creation datetime",
@@ -181,11 +224,27 @@ class QuizSchema(BaseQuizSchema):
     )
 
 
+class QuizWithQuestionAnswersSchema(BaseQuizSchema):
+    """Quiz schema. For serialization purposes only."""
+
+    questions: typing.List[QuestionWithAnswerSchema] = pydantic.Field(
+        description="Quiz questions",
+    )
+
+    created_by: typing.Optional[BaseAccountSchema] = pydantic.Field(
+        description="Quiz creator",
+    )
+
+
 class QuizAttemptQuestionAnswerBaseSchema(pydantic.BaseModel):
     """Quiz attempt question answer base schema."""
 
     answer_index: pydantic.StrictInt = pydantic.Field(
         description="Index of the answer",
+    )
+    is_final: pydantic.StrictBool = pydantic.Field(
+        default=True,
+        description="Is this the final answer?",
     )
 
 
@@ -208,11 +267,8 @@ class BaseQuizAttemptQuestionAnswerSchema(QuizAttemptQuestionAnswerBaseSchema):
     uid: typing.Annotated[pydantic.StrictStr, MaxLen(50)] = pydantic.Field(
         description="Quiz attempt question answer unique identifier",
     )
-    question: BaseQuestionSchema = pydantic.Field(
-        description="Question",
-    )
     is_correct: pydantic.StrictBool = pydantic.Field(
-        description="Is the answer correct",
+        description="Whether the answer is correct as of the the time the question was answered",
     )
     created_at: pydantic.AwareDatetime = pydantic.Field(
         description="Quiz attempt question answer creation datetime",
@@ -231,38 +287,24 @@ class BaseQuizAttemptQuestionAnswerSchema(QuizAttemptQuestionAnswerBaseSchema):
 class QuizAttemptQuestionAnswerSchema(BaseQuizAttemptQuestionAnswerSchema):
     """Quiz attempt question answer schema. For serialization purposes only."""
 
+    question: QuestionSchema = pydantic.Field(
+        description="The question answered.",
+    )
     answered_by: BaseAccountSchema = pydantic.Field(
-        description="Quiz attempt question answer creator",
+        description="Who gave the question answer?",
     )
 
 
 class QuizAttemptBaseSchema(pydantic.BaseModel):
     """Quiz attempt base schema."""
 
-    attempted_questions: pydantic.StrictInt = pydantic.Field(
-        description="Number of attempted questions",
-    )
-    score: typing.Optional[pydantic.StrictInt] = pydantic.Field(
-        default=None,
-        description="Quiz score",
-    )
     submitted: pydantic.StrictBool = pydantic.Field(
         default=False,
         description="Is the quiz submitted",
     )
-    submitted_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
-        default=None,
-        description="Quiz submission datetime",
-    )
 
 
-class QuizAttemptCreateSchema(QuizAttemptBaseSchema):
-    """Quiz attempt create schema."""
-
-    pass
-
-
-@partial
+# @partial
 class QuizAttemptUpdateSchema(QuizAttemptBaseSchema):
     """Quiz attempt update schema."""
 
@@ -276,9 +318,38 @@ class BaseQuizAttemptSchema(QuizAttemptBaseSchema):
         description="Quiz attempt unique identifier",
     )
     quiz: BaseQuizSchema = pydantic.Field(
-        description="Quiz",
+        description="The quiz attempted.",
+    )
+    duration: typing.Optional[pydantic.PositiveFloat] = pydantic.Field(
+        default=None,
+        ge=0,
+        description="Quiz attempt duration in minutes",
+    )
+    is_timed: pydantic.StrictBool = pydantic.Field(
+        default=False,
+        description="Is the quiz attempt time constrained?",
+    )
+    time_remaining: typing.Optional[pydantic.PositiveFloat] = pydantic.Field(
+        default=None,
+        ge=0,
+        description="Quiz attempt time remaining in seconds",
+    )
+    is_expired: pydantic.StrictBool = pydantic.Field(
+        default=False,
+        description="Has the quiz attempt duration elapsed?",
+    )
+    attempted_questions: pydantic.StrictInt = pydantic.Field(
+        description="Number of attempted questions",
+    )
+    score: typing.Optional[pydantic.StrictInt] = pydantic.Field(
+        default=None,
+        description="Quiz score",
     )
     attempted_by: BaseAccountSchema = pydantic.Field(description="Quiz attempt creator")
+    submitted_at: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
+        default=None,
+        description="Quiz submission datetime",
+    )
     created_at: pydantic.AwareDatetime = pydantic.Field(
         description="Quiz attempt creation datetime",
     )
@@ -296,6 +367,6 @@ class BaseQuizAttemptSchema(QuizAttemptBaseSchema):
 class QuizAttemptSchema(BaseQuizAttemptSchema):
     """Quiz attempt schema. For serialization purposes only."""
 
-    question_answers: typing.List[BaseQuizAttemptQuestionAnswerSchema] = pydantic.Field(
+    question_answers: typing.List[QuizAttemptQuestionAnswerSchema] = pydantic.Field(
         description="Quiz attempt question answers",
     )

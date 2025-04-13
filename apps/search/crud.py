@@ -3,12 +3,13 @@ import typing
 import re
 import datetime
 import sqlalchemy as sa
-from sqlalchemy.orm import selectinload, joinedload, InstrumentedAttribute
+from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.accounts.models import Account
 from apps.clients.models import APIClient
 from helpers.fastapi.utils import timezone
+from helpers.fastapi.sqlalchemy.utils import text_to_tsvector, text_to_tsquery
 from .models import (
     Term,
     SearchRecord,
@@ -25,20 +26,6 @@ def _clean_strings(strings: typing.Optional[typing.Iterable[str]]) -> typing.Lis
     if not strings:
         return []
     return [s.strip().lower() for s in strings if s.strip()]
-
-
-def text_to_tsvector(
-    text: typing.Union[str, InstrumentedAttribute[str]], language: str = "english"
-):
-    """Convert text to a tsvector for full-text search."""
-    return sa.func.to_tsvector(language, text)
-
-
-def text_to_tsquery(
-    text: typing.Union[str, InstrumentedAttribute[str]], language: str = "english"
-):
-    """Convert text to a tsquery for full-text search."""
-    return sa.func.plainto_tsquery(language, text)
 
 
 async def create_term(session: AsyncSession, **create_params) -> Term:
@@ -71,6 +58,31 @@ async def retrieve_term_by_uid(
         )
     )
     return result.scalar()
+
+
+async def retrieve_terms_by_name_or_uid(
+    session: AsyncSession, names_or_uids: typing.Iterable[str]
+) -> typing.List[Term]:
+    """
+    Retrieve terms by their names or UIDs.
+
+    Does a case-insensitive search for terms with names that match the given names.
+    :param session: The database session
+    :param names_or_uids: The names or UIDs of the terms to retrieve
+    :return: A list of terms that match the given names or UIDs
+    """
+    result = await session.execute(
+        sa.select(Term).where(
+            ~Term.is_deleted,
+            sa.or_(
+                text_to_tsvector(Term.name).op("@@")(
+                    text_to_tsquery(" | ".join(names_or_uids))
+                ),
+                Term.uid.in_(names_or_uids),
+            ),
+        )
+    )
+    return list(result.scalars().all())
 
 
 async def retrieve_topics_by_name_or_uid(
@@ -273,7 +285,7 @@ async def create_term_view(
     :return: The created term view record
     """
     term_view = TermView(
-        term_id=term.id, # type: ignore
+        term_id=term.id,  # type: ignore
         viewed_by_id=viewed_by.id if viewed_by else None,  # type: ignore
     )
     session.add(term_view)
@@ -348,7 +360,7 @@ async def get_related_terms(
     session: AsyncSession,
     term: Term,
     limit: int = 10,
-    exclude: typing.Optional[typing.List[int]] = None,
+    exclude: typing.Optional[typing.List[typing.Union[int, str]]] = None,
 ) -> typing.List[Term]:
     """
     Get related terms for a given term.
@@ -364,6 +376,7 @@ async def get_related_terms(
             ~Term.is_deleted,
             Term.verified.is_(True),
             ~Term.id.in_(excluded_ids),
+            ~Term.uid.in_(excluded_ids),
             sa.or_(
                 text_to_tsvector(term.definition).op("@@")(text_to_tsquery(Term.name))
                 if term.search_tsvector
@@ -413,18 +426,6 @@ async def update_related_terms(
 
 ###### SEARCH TERMS ######
 
-_UID = typing.Union[str, int]
-
-
-def query_to_regex_pattern(query: str) -> str:
-    """Convert search query to a flexible regex pattern.
-    Handles spaces, hyphens, and other word separators flexibly."""
-    cleaned = query.strip().lower()
-    escaped = re.escape(cleaned)
-    words = escaped.split(r"\ ")
-    pattern = r".*".join(words)
-    return f".*{pattern}.*"
-
 
 async def search_terms(
     session: AsyncSession,
@@ -436,8 +437,9 @@ async def search_terms(
     verified: typing.Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
-    exclude: typing.Optional[typing.List[_UID]] = None,
+    exclude: typing.Optional[typing.List[typing.Union[str, int]]] = None,
     ordering: typing.Sequence[sa.UnaryExpression] = Term.DEFAULT_ORDERING,
+    **filters,
 ) -> typing.List[Term]:
     """
     Search for terms in the glossary.
@@ -452,11 +454,12 @@ async def search_terms(
     :param offset: The number of terms to skip
     :param exclude: A list of term UIDs to exclude from the search results
     :param ordering: A list of SQLAlchemy ordering expressions to apply to the query
+    :param filters: Additional filters to apply to the query
     """
-    if not query and not topics:
+    if not (query or topics or filters):
         return []
 
-    query_filters = []
+    query_filters = [~Term.is_deleted]
     if topics:
         query_filters.append(Term.topics.any(Topic.id.in_([t.id for t in topics])))
 
@@ -489,14 +492,12 @@ async def search_terms(
         query_filters.append(sa.or_(*startletter_filters))
 
     if exclude:
-        query_filters.append(~Term.uid.in_(exclude))
+        query_filters.append(sa.and_(~Term.uid.in_(exclude), ~Term.id.in_(exclude)))
 
     result = await session.execute(
         sa.select(Term)
-        .where(
-            ~Term.is_deleted,
-            *query_filters,
-        )
+        .where(*query_filters)
+        .filter_by(**filters)
         .limit(limit)
         .offset(offset)
         .options(
@@ -771,7 +772,7 @@ async def get_most_searched_queries(
         .group_by(sa.text("query_lower"))
     )
     most_searched_queries = await session.execute(most_searched_queries_query)
-    return dict(most_searched_queries.all()) # type: ignore
+    return dict(most_searched_queries.all())  # type: ignore
 
 
 async def get_most_searched_topics(
@@ -811,7 +812,7 @@ async def get_most_searched_topics(
         .limit(limit)
     )
     most_searched_topics = await session.execute(most_searched_topics_query)
-    return dict(most_searched_topics.all()) # type: ignore
+    return dict(most_searched_topics.all())  # type: ignore
 
 
 async def get_most_searched_words(
@@ -848,7 +849,7 @@ async def get_most_searched_words(
         .group_by(sa.text("word_lower"))
     )
     most_searched_words = await session.execute(most_searched_words_query)
-    return dict(most_searched_words.all()) # type: ignore
+    return dict(most_searched_words.all())  # type: ignore
 
 
 async def get_verified_and_unverified_term_count(
@@ -904,7 +905,7 @@ async def get_terms_sources(
         .group_by(TermSource.id)
     )
     sources = await session.execute(sources_query)
-    return dict(sources.all()) # type: ignore
+    return dict(sources.all())  # type: ignore
 
 
 async def generate_account_search_metrics(
@@ -940,15 +941,21 @@ async def generate_account_search_metrics(
 
     # NOTE: Currently, deleted search records still contribute to the account search metrics.
     # To exclude deleted search records, add `~SearchRecord.is_deleted` to the query_filters
-    account_search_metrics.search_count = await get_search_count(session, query_filters) # type: ignore
+    account_search_metrics.search_count = await get_search_count(session, query_filters)  # type: ignore
     account_search_metrics.most_searched_queries = await get_most_searched_queries(
-        session, query_filters=query_filters, limit=10 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=10,  # type: ignore
     )
     account_search_metrics.most_searched_topics = await get_most_searched_topics(
-        session, query_filters=query_filters, limit=5 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=5,  # type: ignore
     )
     account_search_metrics.most_searched_words = await get_most_searched_words(
-        session, query_filters=query_filters, limit=5 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=5,  # type: ignore
     )
     return account_search_metrics
 
@@ -977,17 +984,23 @@ async def generate_global_search_metrics(
 
     query_filters = [*date_filters]
     # NOTE: Deleted search records always contribute to the global search metrics.
-    global_search_metrics.search_count = await get_search_count(session, query_filters) # type: ignore
+    global_search_metrics.search_count = await get_search_count(session, query_filters)  # type: ignore
     global_search_metrics.most_searched_queries = await get_most_searched_queries(
-        session, query_filters=query_filters, limit=10 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=10,  # type: ignore
     )
     global_search_metrics.most_searched_topics = await get_most_searched_topics(
-        session, query_filters=query_filters, limit=5 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=5,  # type: ignore
     )
     global_search_metrics.most_searched_words = await get_most_searched_words(
-        session, query_filters=query_filters, limit=5 # type: ignore
+        session,
+        query_filters=query_filters,
+        limit=5,  # type: ignore
     )
-    global_search_metrics.sources = await get_terms_sources(session) # type: ignore
+    global_search_metrics.sources = await get_terms_sources(session)  # type: ignore
     (
         verified_term_count,
         unverified_term_count,

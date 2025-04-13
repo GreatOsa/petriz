@@ -475,17 +475,17 @@ async def retrieve_account(account: ActiveUser[Account]):
 )
 async def update_account(
     data: schemas.AccountUpdateSchema,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     session: AsyncDBSession,
 ):
     changed_data = data.model_dump(exclude_unset=True)
     for key, value in changed_data.items():
-        setattr(account, key, value)
+        setattr(user, key, value)
 
-    session.add(account)
+    session.add(user)
     await session.commit()
-    await session.refresh(account)
-    return response.success(data=schemas.AccountSchema.model_validate(account))
+    await session.refresh(user)
+    return response.success(data=schemas.AccountSchema.model_validate(user))
 
 
 @router.post(
@@ -549,7 +549,7 @@ async def initiate_email_change(
 )
 async def complete_email_change(
     data: schemas.EmailOTPVerificationSchema,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     session: AsyncDBSession,
     request: fastapi.Request,
 ):
@@ -563,10 +563,10 @@ async def complete_email_change(
     if not verified:
         return response.bad_request("Invalid OTP token.")
 
-    account.email = data.email  # type: ignore
-    session.add(account)
+    user.email = data.email  # type: ignore
+    session.add(user)
     await session.commit()
-    await session.refresh(account)
+    await session.refresh(user)
     return response.success("Email changed successfully!")
 
 
@@ -587,14 +587,14 @@ async def complete_email_change(
 )
 async def change_password(
     data: schemas.PasswordChangeSchema,
-    account: ActiveUser[Account],
+    user: ActiveUser[Account],
     session: AsyncDBSession,
 ):
-    if account.check_password(data.old_password.get_secret_value()):
+    if user.check_password(data.old_password.get_secret_value()):
         return response.bad_request("Incorrect account password.")
 
-    account.set_password(data.new_password.get_secret_value())
-    session.add(account)
+    user.set_password(data.new_password.get_secret_value())
+    session.add(user)
     await session.commit()
     return response.success("Password changed successfully!")
 
@@ -634,11 +634,11 @@ async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Acc
         authentication_required,
     ],
 )
-async def delete_account(account: ActiveUser[Account], session: AsyncDBSession):
-    account.is_deleted = True
-    account.is_active = False
-    session.add(account)
+async def delete_account(user: ActiveUser[Account], session: AsyncDBSession):
+    user.is_deleted = True
+    user.is_active = False
+    session.add(user)
     # Invalidate all authentications for the account
-    await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
+    await auth_tokens.delete_auth_tokens(session=session, account_id=user.id)
     await session.commit()
     return response.no_content("Account deleted successfully!")

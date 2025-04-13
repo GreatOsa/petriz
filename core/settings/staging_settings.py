@@ -119,7 +119,7 @@ MIDDLEWARE = [
             "allow_headers": ["*"],
         },
     ),
-    "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
+    # "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
     "helpers.fastapi.middlewares.core.RequestProcessTimeMiddleware",
     (
         "starlette.middleware.gzip.GZipMiddleware",
