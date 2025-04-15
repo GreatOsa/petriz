@@ -3,12 +3,13 @@ import gzip
 import orjson
 import base64
 import pydantic
-from starlette.requests import HTTPConnection, empty_send
+from starlette.requests import HTTPConnection, empty_send, empty_receive
 from starlette.types import ASGIApp, Send, Scope, Receive, Message
 from starlette.datastructures import Headers
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from helpers.fastapi.utils.requests import get_ip_address
+from helpers.fastapi.utils.sync import sync_to_async
 from helpers.fastapi.sqlalchemy.setup import get_async_session
 from helpers.fastapi.config import settings
 from helpers.fastapi.middlewares.core import urlstring_to_re
@@ -31,6 +32,7 @@ def _clean_headers(headers: typing.Mapping[str, str]) -> dict:
     }
 
 
+@sync_to_async
 def compress_data(data: typing.Any) -> str:
     """
     Compress data using gzip and encode it to base64.
@@ -47,6 +49,7 @@ def compress_data(data: typing.Any) -> str:
     return base64.b64encode(compressed).decode("utf-8")
 
 
+@sync_to_async
 def decompress_data(data: str) -> typing.Any:
     """
     Decompress data from base64 and gzip.
@@ -134,40 +137,60 @@ class ConnectionEventLogResponder:
         self,
         app: ASGIApp,
         metadata: typing.Optional[typing.MutableMapping[str, typing.Any]] = None,
+        include_request: bool = True,
+        include_response: bool = True,
+        compress_body: bool = False,
     ) -> None:
         """
         Initialize the responder.
 
         :param app: The ASGI application.
         :param metadata: Base metadata to log.
+        :param include_request: Whether to include the request data in the log.
+        :param include_response: Whether to include the response data in the log.
+        :param compress_body: Whether to compress the request and response body in log data.
         """
         self.app = app
         self.send = empty_send
+        self.receive = empty_receive
         self.status = ActionStatus.ERROR  # Assume error until proven otherwise
         self.metadata = metadata or {}
         self.exception = None
+        self.include_request = include_request
+        self.include_response = include_response
+        self.compress_body = compress_body
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         self.send = send
-        connection = HTTPConnection(scope, receive)
+        self.receive = receive
         if settings.LOG_CONNECTION_EVENTS is False:
             await self.app(scope, receive, send)
             return
 
         method = scope["method"]
-        path = connection.url.path
-        query_params = dict(connection.query_params)
+        path = scope["path"]
+        connection = HTTPConnection(scope, receive)
         headers = _clean_headers(connection.headers)
-        self.metadata["connection"] = {
-            "method": method,
-            "url": path,
-            "query_params": query_params,
-            "headers": headers,
-            "body": None,
-        }
+
+        if self.include_request:
+            query_params = dict(connection.query_params)
+            self.metadata["request"] = {
+                "method": method,
+                "url": path,
+                "query_params": query_params,
+                "headers": headers,
+                "body": None,
+            }
+
+        if self.include_response:
+            self.metadata["response"] = {
+                "status_code": None,
+                "headers": None,
+                "body": None,
+            }
 
         try:
-            await self.app(scope, receive, self.send_response)
+            await self.app(scope, self.receive_request, self.send_response)
         except Exception as exc:
             self.exception = exc
             self.metadata["error"] = str(exc)
@@ -204,14 +227,36 @@ class ConnectionEventLogResponder:
         if self.exception:
             raise self.exception
 
+    async def receive_request(self) -> Message:
+        message = await self.receive()
+        if not self.include_request:
+            return message
+
+        if message["type"] == "http.request":
+            body = message.get("body", b"")
+            if body:
+                if self.compress_body:
+                    body_data = await compress_data(body)
+                else:
+                    body_data = body.decode("utf-8")
+
+                if self.metadata["request"].get("body", None) is None:
+                    self.metadata["request"]["body"] = [body_data]
+                else:
+                    self.metadata["request"]["body"].append(body_data)
+        return message
+
     async def send_response(self, message: Message) -> None:
+        if not self.include_response:
+            await self.send(message)
+            return
+
         message_type = message["type"]
         if message_type == "http.response.start":
-            self.metadata["response"] = {
-                "status_code": message["status"],
-                "headers": _clean_headers(dict(Headers(raw=message["headers"]))),
-                "body": None,
-            }
+            self.metadata["response"]["status_code"] = message["status"]
+            self.metadata["response"]["headers"] = _clean_headers(
+                dict(Headers(raw=message["headers"]))
+            )
             self.status = (
                 ActionStatus.SUCCESS
                 if 200 <= message["status"] < 400
@@ -224,8 +269,12 @@ class ConnectionEventLogResponder:
                 await self.send(message)
                 return
 
-            body_data = compress_data(body) # halves the size of the data in most cases
-            if not self.metadata["response"].get("body", None):
+            if self.compress_body:
+                body_data = await compress_data(body)
+            else:
+                body_data = body.decode("utf-8")
+
+            if self.metadata["response"].get("body", None) is None:
                 self.metadata["response"]["body"] = [body_data]
             else:
                 self.metadata["response"]["body"].append(body_data)
@@ -239,11 +288,38 @@ class ConnectionEventLogMiddleware:
     """
 
     def __init__(
-        self, app: ASGIApp, exclude: typing.Optional[typing.Sequence[str]] = None
+        self,
+        app: ASGIApp,
+        excluded_paths: typing.Optional[typing.Sequence[str]] = None,
+        included_paths: typing.Optional[typing.Sequence[str]] = None,
+        include_request: bool = True,
+        include_response: bool = True,
+        compress_body: bool = False,
     ):
+        """
+        Initialize the middleware.
+
+        :param app: The ASGI application.
+        :param excluded_paths: List of (regex type) paths to exclude from logging.
+        :param included_paths: List of (regex type) paths to include in logging.
+        :param compress_body: Whether to compress the request and response body in log data.
+            This is useful for making log dat for large payloads smaller.
+        :param include_request: Whether to include the request data in the log.
+        :param include_response: Whether to include the response data in the log.
+        """
+        if excluded_paths and included_paths:
+            raise ValueError("Cannot specify both 'exclude' and 'include' paths.")
+
         self.app = app
-        self.exclude = exclude or []
-        self.excluded_paths_patterns = [urlstring_to_re(path) for path in self.exclude]
+        self.included_paths_patterns = (
+            [urlstring_to_re(path) for path in included_paths] if included_paths else []
+        )
+        self.excluded_paths_patterns = (
+            [urlstring_to_re(path) for path in excluded_paths] if excluded_paths else []
+        )
+        self.include_request = include_request
+        self.include_response = include_response
+        self.compress_body = compress_body
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -251,8 +327,21 @@ class ConnectionEventLogMiddleware:
             return
 
         path = scope["path"]
-        if any(pattern.match(path) for pattern in self.excluded_paths_patterns):
+        if self.excluded_paths_patterns and any(
+            pattern.match(path) for pattern in self.excluded_paths_patterns
+        ):
             await self.app(scope, receive, send)
             return
-        responder = ConnectionEventLogResponder(app=self.app)
+        if self.included_paths_patterns and not any(
+            pattern.match(path) for pattern in self.included_paths_patterns
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        responder = ConnectionEventLogResponder(
+            app=self.app,
+            include_request=self.include_request,
+            include_response=self.include_response,
+            compress_body=self.compress_body,
+        )
         await responder(scope, receive, send)
