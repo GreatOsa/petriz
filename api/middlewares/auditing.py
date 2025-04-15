@@ -1,4 +1,7 @@
 import typing
+import gzip
+import orjson
+import base64
 import pydantic
 from starlette.requests import HTTPConnection, empty_send
 from starlette.types import ASGIApp, Send, Scope, Receive, Message
@@ -26,6 +29,34 @@ def _clean_headers(headers: typing.Mapping[str, str]) -> dict:
         for key, value in headers.items()
         if key.lower() not in SENSITIVE_HEADERS
     }
+
+
+def compress_data(data: typing.Any) -> str:
+    """
+    Compress data using gzip and encode it to base64.
+
+    :param data: The data to compress.
+    :return: The compressed and base64-encoded data.
+    """
+    if not isinstance(data, (bytes, bytearray)):
+        bytes_data = orjson.dumps(data)
+    else:
+        bytes_data = data
+
+    compressed = gzip.compress(bytes_data)
+    return base64.b64encode(compressed).decode("utf-8")
+
+
+def decompress_data(data: str) -> typing.Any:
+    """
+    Decompress data from base64 and gzip.
+
+    :param data: The base64-encoded compressed data.
+    :return: The decompressed data.
+    """
+    compressed = base64.b64decode(data.encode("utf-8"))
+    decompressed = gzip.decompress(compressed)
+    return orjson.loads(decompressed.decode("utf-8"))
 
 
 async def get_api_client_from_connection(
@@ -193,10 +224,11 @@ class ConnectionEventLogResponder:
                 await self.send(message)
                 return
 
+            body_data = compress_data(body) # halves the size of the data in most cases
             if not self.metadata["response"].get("body", None):
-                self.metadata["response"]["body"] = [body.decode()]
+                self.metadata["response"]["body"] = [body_data]
             else:
-                self.metadata["response"]["body"].append(body.decode())
+                self.metadata["response"]["body"].append(body_data)
 
         await self.send(message)
 

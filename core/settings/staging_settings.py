@@ -131,7 +131,13 @@ MIDDLEWARE = [
     (
         "api.middlewares.auditing.ConnectionEventLogMiddleware",
         {
-            "exclude": [r"^/api/.+/audits.+$"],
+            "exclude": [
+                r"^/api/openapi.json$",
+                r"^/api/docs.*$",
+                r"^/api/redoc.*$",
+                r"^/api/v[1-9]{1,}/audits.+$",
+                r"^/api/v[1-9]{1,}/?$",
+            ],
         },
     ),
     *default_settings.MIDDLEWARE,

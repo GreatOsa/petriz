@@ -1,9 +1,8 @@
 from enum import Enum
 import typing
 import pydantic
-from pydantic_core._pydantic_core import PydanticCustomError
+from pydantic_core._pydantic_core import PydanticCustomError # type: ignore
 import re
-from string import Template
 from typing_extensions import Doc
 
 from .models import APIClient
@@ -410,6 +409,11 @@ ALLOWED_PERMISSIONS_SETS = {
         "term_sources::*::list",
         "term_sources::*::view",
         "search_records::*::create",
+        "quizzes::*::list",
+        "quizzes::*::view",
+        "quizzes::*::attempt",
+        "questions::*::list",
+        "questions::*::attempt",
     },
     "partner": {
         "accounts::*::*",
@@ -419,6 +423,8 @@ ALLOWED_PERMISSIONS_SETS = {
         "topics::*::*",
         "term_sources::*::*",
         "search_records::*::*",
+        "quizzes::*::*",
+        "questions::*::*",
     },
     "user": {
         "api_clients::*::*",
@@ -431,5 +437,15 @@ ALLOWED_PERMISSIONS_SETS = {
         "search_records::*::list_own",
         "search_records::*::delete",
         "search_records::*::create",
+        "quizzes::*::list",
+        "quizzes::*::view",
+        "quizzes::*::create",
+        "quizzes::*::update",
+        "quizzes::*::delete",
+        "quizzes::*::attempt",
+        "questions::*::list",
+        "questions::*::create",
+        "questions::*::update",
+        "questions::*::attempt",
     },
 }
