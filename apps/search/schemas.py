@@ -263,10 +263,15 @@ class SearchRecordSchema(pydantic.BaseModel):
     client: typing.Optional[APIClientSimpleSchema] = pydantic.Field(
         description="The client that made the search"
     )
-    extradata: typing.Optional[typing.Dict[str, pydantic.JsonValue]] = pydantic.Field(
+    metadata: typing.Optional[typing.Dict[str, pydantic.JsonValue]] = pydantic.Field(
         default=None,
         description="Extra data associated with the search",
+        validation_alias=pydantic.AliasChoices(
+            "extradata",
+            "metadata",
+        ),
         serialization_alias="metadata",
+        alias_priority=1,
     )
     timestamp: typing.Optional[pydantic.AwareDatetime] = pydantic.Field(
         description="The date and time the search was made"

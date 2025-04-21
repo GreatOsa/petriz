@@ -109,7 +109,7 @@ class APIClientSchema(APIClientBaseSchema):
     api_key: typing.Optional[APIKeySchema] = pydantic.Field(
         default=None, description="API Key"
     )
-    disabled: pydantic.StrictBool = pydantic.Field(
+    is_disabled: pydantic.StrictBool = pydantic.Field(
         description="Is the API Client disabled?"
     )
     permissions: typing.List[PermissionSchema] = pydantic.Field(
@@ -150,7 +150,7 @@ class APIClientSchema(APIClientBaseSchema):
 class APIClientUpdateSchema(APIClientBaseSchema):
     """API Client update schema."""
 
-    disabled: pydantic.StrictBool
+    is_disabled: pydantic.StrictBool
 
 
 class APIClientBulkDeleteSchema(pydantic.BaseModel):

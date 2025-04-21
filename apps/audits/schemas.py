@@ -39,7 +39,17 @@ class AuditLogEntryBaseSchema(pydantic.BaseModel):
         typing.Annotated[str, pydantic.StringConstraints(max_length=500)]
     ]
     status: typing.Optional[ActionStatus]
-    data: typing.Optional[pydantic.JsonValue]
+    metadata: typing.Optional[typing.Dict[str, pydantic.JsonValue]] = (
+        pydantic.Field(
+            default=None,
+            serialization_alias="metadata",
+            validation_alias=pydantic.AliasChoices(
+                "extradata",
+                "metadata",
+            ),
+            description="Additional metadata for the audit log entry.",
+        )
+    )
 
 
 class AuditLogEntryCreateSchema(AuditLogEntryBaseSchema):

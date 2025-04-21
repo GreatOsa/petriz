@@ -70,9 +70,9 @@ async def lifespan(app: fastapi.FastAPI):
     from helpers.fastapi.sqlalchemy.models import ModelBase
     from helpers.fastapi.apps import configure_apps
     from helpers.fastapi.requests import throttling
-    from apps.search.models import execute_search_ddls
-    from apps.quizzes.models import execute_quiz_ddls
-    from api.caching import ORJsonCoder, request_key_builder
+    from apps.search.ddls import execute_search_ddls
+    from apps.quizzes.ddls import execute_quiz_ddls
+    from api.caching import ORJsonCoder, request_key_builder, redis
 
     set_anyio_max_worker_threads(settings.ANYIO_MAX_WORKER_THREADS)
     # Prevents deadlocks from multiple worker processes accessing lock
@@ -87,7 +87,6 @@ async def lifespan(app: fastapi.FastAPI):
     persist_redis_data = (
         app.debug is False
     )  # Whether to clear data stored in redis in debug mode, on application exit.
-    redis = async_pyredis.from_url(settings.REDIS_LOCATION, decode_responses=False)
     async with throttling.configure(
         persistent=persist_redis_data,
         redis=redis,

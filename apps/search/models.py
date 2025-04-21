@@ -1,22 +1,17 @@
 import datetime
 import typing
 import uuid
-import multiprocessing
 from annotated_types import MaxLen
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import TSVECTOR
-import logging
 
-from helpers.fastapi.sqlalchemy import models, mixins, setup
+from helpers.fastapi.sqlalchemy import models, mixins
 from helpers.fastapi.utils import timezone
 
 from api.utils import generate_uid
 from apps.accounts.models import Account
 from apps.clients.models import APIClient
-
-
-logger = logging.getLogger(__name__)
 
 
 def generate_term_uid() -> str:
@@ -72,16 +67,29 @@ class Topic(mixins.TimestampMixin, models.Model):
         nullable=True,
         insert_default=None,
     )
-
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
         sa.Boolean,
         nullable=False,
         default=False,
         index=True,
-        insert_default=False,
+        server_default=sa.false(),
         doc="Whether the topic has been deleted",
     )
-
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="The date and time the topic was deleted",
+    )
+    
+    ############ Relationships ############
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        foreign_keys=[deleted_by_id],
+        doc="The account that deleted the topic",
+    )
     terms: orm.Mapped[typing.List["Term"]] = orm.relationship(
         secondary=TermToTopicAssociation.__table__,  # type: ignore
         back_populates="topics",
@@ -120,11 +128,25 @@ class TermSource(mixins.TimestampMixin, models.Model):
         sa.Boolean,
         nullable=False,
         default=False,
-        insert_default=False,
+        server_default=sa.false(),
         index=True,
         doc="Whether the source has been deleted",
     )
-
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="The date and time the source was deleted",
+    )
+    
+    ############ Relationships ############
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        foreign_keys=[deleted_by_id],
+        doc="The account that deleted the source",
+    )
     terms: orm.Mapped[typing.List["Term"]] = orm.relationship(
         back_populates="source",
         doc="The terms obtained from the source",
@@ -196,14 +218,29 @@ class Term(mixins.TimestampMixin, models.Model):
         nullable=False,
         default=False,
         index=True,
-        insert_default=False,
+        server_default=sa.false(),
         doc="Whether the term has been deleted",
+    )
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="The date and time the term was deleted",
     )
     source_id: orm.Mapped[typing.Optional[int]] = orm.mapped_column(
         sa.ForeignKey("search__term_sources.id", ondelete="SET NULL"),
         index=True,
         nullable=True,
         doc="The source from which the term was obtained",
+    )
+
+    ############ Relationships ############
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        foreign_keys=[deleted_by_id],
+        doc="The account that deleted the term",
     )
     source: orm.Mapped[typing.Optional[TermSource]] = orm.relationship(
         doc="The source from which the term was obtained",
@@ -336,13 +373,26 @@ class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model):  # type: ignore
         nullable=False,
         default=False,
         index=True,
-        insert_default=False,
+        server_default=sa.false(),
         doc="Whether the search record has been deleted",
     )
-
-    ########### Relationships ############
-
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="The date and time the search record was deleted",
+    )
+    
+    ############ Relationships ############
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        foreign_keys=[deleted_by_id],
+        doc="The account that deleted the search record",
+    )
     account: orm.Mapped[Account] = orm.relationship(
+        foreign_keys=[account_id],
         back_populates="search_history", doc="The account that made the search"
     )
     client: orm.Mapped[APIClient] = orm.relationship(
@@ -356,122 +406,3 @@ class SearchRecord(mixins.UUID7PrimaryKeyMixin, models.Model):  # type: ignore
         ),
     )
 
-
-# Constants for search configuration
-SEARCH_CONFIG = {
-    "language": "pg_catalog.english",
-    "weights": {
-        "name": "A",
-        "definition": "B",
-    },
-}
-
-SEARCH_DDLS = (
-    # Drop existing triggers and functions for clean slate
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS terms_search_tsvector_update ON {Term.__tablename__};
-    DROP TRIGGER IF EXISTS search_records_query_tsvector_update ON {SearchRecord.__tablename__};
-    DROP FUNCTION IF EXISTS update_terms_search_tsvector();
-    DROP FUNCTION IF EXISTS backfill_tsvectors();
-    """),
-    # Create backfill function with proper string escaping
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION backfill_tsvectors() RETURNS void AS 
-    $$
-    DECLARE
-        terms_count integer;
-        records_count integer;
-    BEGIN
-        -- Backfill terms
-        UPDATE {Term.__tablename__} t
-        SET search_tsvector = 
-            CASE 
-                WHEN t.name IS NULL AND t.definition IS NULL THEN NULL
-                ELSE
-                    setweight(to_tsvector('{SEARCH_CONFIG["language"]}', COALESCE(t.name, '')), 
-                        '{SEARCH_CONFIG["weights"]["name"]}') ||
-                    setweight(to_tsvector('{SEARCH_CONFIG["language"]}', COALESCE(t.definition, '')), 
-                        '{SEARCH_CONFIG["weights"]["definition"]}')
-            END
-        WHERE (t.name IS NOT NULL OR t.definition IS NOT NULL)
-            AND t.search_tsvector IS NULL;
-        
-        GET DIAGNOSTICS terms_count = ROW_COUNT;
-        RAISE NOTICE 'Updated %% term records', terms_count;
-
-        -- Backfill search records
-        UPDATE {SearchRecord.__tablename__} sr
-        SET query_tsvector = to_tsvector('{SEARCH_CONFIG["language"]}', query)
-        WHERE query IS NOT NULL 
-            AND query != ''
-            AND query_tsvector IS NULL;
-        
-        GET DIAGNOSTICS records_count = ROW_COUNT;
-        RAISE NOTICE 'Updated %% search records', records_count;
-        
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Backfill failed: %%', SQLERRM;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    # Create terms trigger function
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_terms_search_tsvector() RETURNS trigger AS 
-    $$
-    BEGIN
-        NEW.search_tsvector := 
-            CASE 
-                WHEN NEW.name IS NULL AND NEW.definition IS NULL THEN NULL
-                ELSE
-                    setweight(to_tsvector('{SEARCH_CONFIG["language"]}', COALESCE(NEW.name, '')), 
-                        '{SEARCH_CONFIG["weights"]["name"]}') ||
-                    setweight(to_tsvector('{SEARCH_CONFIG["language"]}', COALESCE(NEW.definition, '')), 
-                        '{SEARCH_CONFIG["weights"]["definition"]}')
-            END;
-        RETURN NEW;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Failed to update tsvector: %%', SQLERRM;
-        NEW.search_tsvector := NULL;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    # Create triggers
-    sa.DDL(f"""
-    CREATE TRIGGER terms_search_tsvector_update
-        BEFORE INSERT OR UPDATE OF name, definition ON {Term.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_terms_search_tsvector();
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER search_records_query_tsvector_update
-        BEFORE INSERT OR UPDATE OF query ON {SearchRecord.__tablename__}
-        FOR EACH ROW
-        WHEN (NEW.query IS NOT NULL)
-        EXECUTE FUNCTION tsvector_update_trigger(
-            query_tsvector, '{SEARCH_CONFIG["language"]}', query
-        );
-    """),
-    # Execute backfill
-    sa.DDL("SELECT backfill_tsvectors();"),
-)
-
-
-def execute_search_ddls():
-    """Execute search-related DDL statements once during application startup."""
-    # Prevents multiple workers from executing DDLs concurrently which
-    # may trigger deadlocks from the process trying to acquire AccessExclusiveLock
-    # on the same database object(table) at the same time
-    with multiprocessing.Lock(), setup.engine.begin() as conn:
-        try:
-            # Execute DDLs in transaction
-            for ddl in SEARCH_DDLS:
-                conn.execute(ddl)
-            conn.execute(sa.text("COMMIT"))
-            logger.info("Successfully executed search DDL statements")
-        except Exception as exc:
-            logger.error(f"Failed to execute search DDL statements: {exc}")
-            raise
-
-
-__all__ = ["Topic", "Term", "SearchRecord", "execute_search_ddls"]

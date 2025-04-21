@@ -66,8 +66,8 @@ class APIClient(  # type: ignore
     client_type: orm.Mapped[str] = orm.mapped_column(
         sa.String(20), nullable=False, index=True, default=ClientType.PUBLIC.value
     )
-    disabled: orm.Mapped[bool] = orm.mapped_column(
-        default=False, index=True, insert_default=False
+    is_disabled: orm.Mapped[bool] = orm.mapped_column(
+        default=False, index=True, server_default=sa.false()
     )
     permissions: orm.Mapped[typing.List[typing.Annotated[str, MaxLen(255)]]] = (
         orm.mapped_column(sa.ARRAY(sa.String(255), dimensions=1), nullable=True)
@@ -76,7 +76,9 @@ class APIClient(  # type: ignore
         orm.mapped_column(sa.DateTime(timezone=True), nullable=True, index=True)
     )
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
-        default=False, index=True, insert_default=False
+        default=False,
+        index=True,
+        server_default=sa.false(),
     )
     created_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
         sa.UUID,
@@ -84,6 +86,16 @@ class APIClient(  # type: ignore
         nullable=True,
         index=True,
         doc="ID of the user who created the client.",
+    )
+    deleted_by_id: orm.Mapped[typing.Optional[str]] = orm.mapped_column(
+        sa.ForeignKey("accounts__client_accounts.id"),
+        nullable=True,
+        doc="ID of the user who deleted the client",
+    )
+    deleted_at: orm.Mapped[typing.Optional[sa.DateTime]] = orm.mapped_column(
+        sa.DateTime,
+        nullable=True,
+        doc="Timestamp when the client was deleted",
     )
 
     __table_args__ = (
@@ -102,6 +114,11 @@ class APIClient(  # type: ignore
     created_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
         foreign_keys=[created_by_id]
     )
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        Account,
+        foreign_keys=[deleted_by_id],
+        doc="User who deleted the client",
+    )
 
     DEFAULT_ORDERING = [
         sa.desc("created_at"),
@@ -109,9 +126,9 @@ class APIClient(  # type: ignore
 
     @orm.validates("client_type")
     def validate_client_type(self, key: str, value: str) -> str:
-        if value not in ClientType.__members__.values():
+        if value.lower() not in ClientType.__members__.values():
             raise ValueError(f"Invalid client type: {value}")
-        return value
+        return value.lower()
 
 
 class APIKey(  # type: ignore
@@ -157,7 +174,7 @@ class APIKey(  # type: ignore
     @property
     def active(self) -> bool:
         """Check if the api key is active. Depends on the client status"""
-        return not self.client.disabled
+        return not self.client.is_disabled
 
     @property
     def valid(self) -> bool:

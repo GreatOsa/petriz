@@ -1,22 +1,17 @@
 import datetime
 import typing
 import uuid
-import logging
 import enum
-import multiprocessing
 from annotated_types import MaxLen
 import sqlalchemy as sa
 from sqlalchemy import orm
 from sqlalchemy.dialects.postgresql import TSVECTOR
-from helpers.fastapi.sqlalchemy import models, mixins, setup
+from helpers.fastapi.sqlalchemy import models, mixins
 
 from api.utils import generate_uid
 from apps.accounts.models import Account
 from apps.search.models import Topic, Term
 from helpers.fastapi.utils import timezone
-
-
-logger = logging.getLogger(__name__)
 
 
 def generate_quiz_uid() -> str:
@@ -123,10 +118,24 @@ class Question(mixins.TimestampMixin, models.Model):
 
     uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
         sa.String(50),
-        unique=True,
+        unique=False,
         index=True,
         default=generate_question_uid,
         doc="Unique ID of the question.",
+    )
+    version: orm.Mapped[int] = orm.mapped_column(
+        sa.Integer,
+        sa.CheckConstraint("version >= 0"),
+        default=0,
+        server_default=sa.text("0"),
+        doc="Version of the question.",
+    )
+    is_latest: orm.Mapped[bool] = orm.mapped_column(
+        sa.Boolean,
+        default=True,
+        doc="Whether the question is the latest version.",
+        index=True,
+        server_default=sa.true(),
     )
     question: orm.Mapped[str] = orm.mapped_column(sa.Text, doc="Question text.")
     options: orm.Mapped[typing.List[typing.Annotated[str, MaxLen(500)]]] = (
@@ -140,7 +149,7 @@ class Question(mixins.TimestampMixin, models.Model):
         sa.CheckConstraint("correct_option_index >= 0"),
         doc="Index of the correct option.",
     )
-    difficulty: orm.Mapped[QuestionDifficulty] = orm.mapped_column(
+    difficulty: orm.Mapped[str] = orm.mapped_column(
         sa.String(20),
         default=QuestionDifficulty.NOT_SET.value,
         doc="Difficulty level of the question.",
@@ -154,32 +163,67 @@ class Question(mixins.TimestampMixin, models.Model):
         nullable=True,
         doc="Full-text search vector for the question.",
     )
+    created_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.UUID,
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+        doc="Unique ID of the user who created the question.",
+    )
+    is_deleted: orm.Mapped[bool] = orm.mapped_column(
+        sa.Boolean, default=False, doc="Whether the question is deleted.", index=True
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="Datetime when the question was deleted.",
+    )
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.UUID,
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Unique ID of the user who deleted the question.",
+    )
+
+    ######### Relationships #############
+    created_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        Account,
+        foreign_keys=[created_by_id],
+        uselist=False,
+        doc="User who created the question.",
+    )
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        Account,
+        foreign_keys=[deleted_by_id],
+        uselist=False,
+        doc="User who deleted the question.",
+    )
     quizzes: orm.Mapped[typing.Set["Quiz"]] = orm.relationship(
         "Quiz",
         secondary=QuestionToQuizAssociation.__table__,  # type: ignore
         back_populates="questions",
+        lazy="selectin",
         doc="Quizzes to which the question belongs.",
     )
     related_topics: orm.Mapped[typing.Set[Topic]] = orm.relationship(
         Topic,
         secondary=QuestionToTopicAssociation.__table__,  # type: ignore
         doc="Topics associated with the question.",
-        order_by="Topic.name",
+        lazy="selectin",
+        order_by=Topic.name.asc(),
     )
     related_terms: orm.Mapped[typing.Set[Term]] = orm.relationship(
         Term,
         secondary=QuestionToTermAssociation.__table__,  # type: ignore
         doc="Terms associated with the question.",
-        order_by="Term.name",
-    )
-
-    is_deleted: orm.Mapped[bool] = orm.mapped_column(
-        sa.Boolean, default=False, doc="Whether the question is deleted.", index=True
+        lazy="selectin",
+        order_by=Term.name.asc(),
     )
 
     DEFAULT_ORDERING = (sa.desc("created_at"),)
 
     __table_args__ = (
+        sa.UniqueConstraint("uid", "version", name="uq_question_uid_version"),
         sa.Index("ix_question_created_at", "created_at"),
         sa.Index(
             "ix_question_search_tsvector", "search_tsvector", postgresql_using="gin"
@@ -203,9 +247,13 @@ class Question(mixins.TimestampMixin, models.Model):
             raise ValueError("Invalid correct option index.")
         return value
 
+    difficulty_levels = [
+        level.value for level in QuestionDifficulty.__members__.values()
+    ]
+
     @orm.validates("difficulty")
     def validate_difficulty(self, key: str, value: str) -> str:
-        if value not in QuestionDifficulty.__members__.values():
+        if value not in self.difficulty_levels:
             raise ValueError(f"Invalid difficulty level: {value}")
         return value
 
@@ -217,10 +265,24 @@ class Quiz(mixins.TimestampMixin, models.Model):
 
     uid: orm.Mapped[typing.Annotated[str, MaxLen(50)]] = orm.mapped_column(
         sa.String(50),
-        unique=True,
+        unique=False,
         index=True,
         default=generate_quiz_uid,
         doc="Unique ID of the quiz.",
+    )
+    version: orm.Mapped[int] = orm.mapped_column(
+        sa.Integer,
+        sa.CheckConstraint("version >= 0"),
+        default=0,
+        server_default=sa.text("0"),
+        doc="Version of the quiz.",
+    )
+    is_latest: orm.Mapped[bool] = orm.mapped_column(
+        sa.Boolean,
+        default=True,
+        server_default=sa.true(),
+        doc="Whether the quiz is the latest version.",
+        index=True,
     )
     title: orm.Mapped[str] = orm.mapped_column(
         sa.String(255), index=True, doc="Title of the quiz."
@@ -228,7 +290,7 @@ class Quiz(mixins.TimestampMixin, models.Model):
     description: orm.Mapped[str] = orm.mapped_column(
         sa.Text, nullable=True, doc="Description of the quiz."
     )
-    difficulty: orm.Mapped[QuizDifficulty] = orm.mapped_column(
+    difficulty: orm.Mapped[str] = orm.mapped_column(
         sa.String(20),
         default=QuizDifficulty.NOT_SET.value,
         doc="Difficulty level of the quiz.",
@@ -253,8 +315,10 @@ class Quiz(mixins.TimestampMixin, models.Model):
         index=True,
         doc="Unique ID of the user who created the quiz.",
     )
-    data: orm.Mapped[typing.Dict[str, typing.Any]] = orm.mapped_column(
-        sa.JSON, doc="Additional data associated with the quiz."
+    extradata: orm.Mapped[typing.Dict[str, typing.Any]] = orm.mapped_column(
+        sa.JSON,
+        doc="Additional data associated with the quiz.",
+        nullable=True,
     )
     duration: orm.Mapped[typing.Optional[float]] = orm.mapped_column(
         sa.Float(2),
@@ -270,18 +334,44 @@ class Quiz(mixins.TimestampMixin, models.Model):
         doc="Number of questions in the quiz.",
     )
     is_public: orm.Mapped[bool] = orm.mapped_column(
-        sa.Boolean, default=False, doc="Whether the quiz is public.", index=True
+        sa.Boolean,
+        default=False,
+        server_default=sa.false(),
+        doc="Whether the quiz is public.",
+        index=True,
     )
     is_deleted: orm.Mapped[bool] = orm.mapped_column(
-        sa.Boolean, default=False, doc="Whether the quiz is deleted.", index=True
+        sa.Boolean,
+        default=False,
+        server_default=sa.false(),
+        doc="Whether the quiz is deleted.",
+        index=True,
+    )
+    deleted_at: orm.Mapped[typing.Optional[datetime.datetime]] = orm.mapped_column(
+        sa.DateTime(timezone=True),
+        nullable=True,
+        doc="Datetime when the quiz was deleted.",
+    )
+    deleted_by_id: orm.Mapped[typing.Optional[uuid.UUID]] = orm.mapped_column(
+        sa.UUID,
+        sa.ForeignKey("accounts__client_accounts.id", ondelete="SET NULL"),
+        nullable=True,
+        doc="Unique ID of the user who deleted the quiz.",
     )
 
     ######### Relationships #############
     created_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
-        "Account",
+        Account,
+        foreign_keys=[created_by_id],
         back_populates="quizzes",
         uselist=False,
         doc="User who created the quiz.",
+    )
+    deleted_by: orm.Mapped[typing.Optional[Account]] = orm.relationship(
+        Account,
+        foreign_keys=[deleted_by_id],
+        uselist=False,
+        doc="User who deleted the quiz.",
     )
     attempts: orm.Mapped[typing.List["QuizAttempt"]] = orm.relationship(
         "QuizAttempt",
@@ -292,6 +382,7 @@ class Quiz(mixins.TimestampMixin, models.Model):
     )
 
     __table_args__ = (
+        sa.UniqueConstraint("uid", "version", name="uq_quiz_uid_version"),
         sa.UniqueConstraint("title", "created_by_id"),
         sa.Index("ix_quiz_created_at", "created_at"),
         sa.Index("ix_quiz_updated_at", "updated_at"),
@@ -299,12 +390,14 @@ class Quiz(mixins.TimestampMixin, models.Model):
     )
     DEFAULT_ORDERING = (
         sa.desc("created_at"),
-        sa.asc("name"),
+        sa.asc("title"),
     )
+
+    difficulty_levels = [level.value for level in QuizDifficulty.__members__.values()]
 
     @orm.validates("difficulty")
     def validate_difficulty(self, key: str, value: str) -> str:
-        if value not in QuizDifficulty.__members__.values():
+        if value not in self.difficulty_levels:
             raise ValueError(f"Invalid difficulty level: {value}")
         return value
 
@@ -361,7 +454,7 @@ class QuizAttempt(mixins.TimestampMixin, models.Model):
         sa.Integer,
         sa.CheckConstraint("attempted_questions >= 0"),
         default=0,
-        doc="Number of questions attempted by the user.",
+        doc="Number of questions attempted by the user. Auto-updated by postgres trigger",
     )
     score: orm.Mapped[typing.Optional[int]] = orm.mapped_column(
         sa.Integer,
@@ -370,9 +463,10 @@ class QuizAttempt(mixins.TimestampMixin, models.Model):
         doc="Score obtained by the user.",
         index=True,
     )
-    submitted: orm.Mapped[bool] = orm.mapped_column(
+    is_submitted: orm.Mapped[bool] = orm.mapped_column(
         sa.Boolean,
         default=False,
+        server_default=sa.false(),
         doc="Whether the quiz attempt is submitted.",
         index=True,
     )
@@ -482,12 +576,14 @@ class QuizAttemptQuestionAnswer(mixins.TimestampMixin, models.Model):
     is_final: orm.Mapped[bool] = orm.mapped_column(
         sa.Boolean,
         default=False,
+        server_default=sa.false(),
         doc="Whether the answer is final.",
         index=True,
     )
     is_correct: orm.Mapped[bool] = orm.mapped_column(
         sa.Boolean,
         default=False,
+        server_default=sa.false(),
         doc="Whether the answer is correct as of the time the question was answered.",
         index=True,
     )
@@ -496,12 +592,6 @@ class QuizAttemptQuestionAnswer(mixins.TimestampMixin, models.Model):
         sa.ForeignKey("quizzes__questions.id", ondelete="CASCADE"),
         index=True,
         doc="Unique ID of the question.",
-    )
-    quiz_id: orm.Mapped[int] = orm.mapped_column(
-        sa.Integer,
-        sa.ForeignKey("quizzes__quizzes.id", ondelete="CASCADE"),
-        index=True,
-        doc="Unique ID of the quiz.",
     )
     quiz_attempt_id: orm.Mapped[int] = orm.mapped_column(
         sa.Integer,
@@ -521,10 +611,6 @@ class QuizAttemptQuestionAnswer(mixins.TimestampMixin, models.Model):
     question: orm.Mapped[Question] = orm.relationship(
         Question,
         doc="Question to which the answer belongs.",
-    )
-    quiz: orm.Mapped[Quiz] = orm.relationship(
-        Quiz,
-        doc="Quiz to which the answer belongs.",
     )
     quiz_attempt: orm.Mapped[QuizAttempt] = orm.relationship(
         QuizAttempt,
@@ -551,8 +637,7 @@ class QuizAttemptQuestionAnswer(mixins.TimestampMixin, models.Model):
             "answered_by_id",
         ),
         sa.Index(
-            "ix_quiz_atmpt_questn_answr_quiz_questn_answrd_by_id_ctd_at",
-            "quiz_id",
+            "ix_quiz_atmpt_questn_answr_questn_answrd_by_id_ctd_at",
             "question_id",
             "answered_by_id",
             "created_at",
@@ -564,272 +649,3 @@ class QuizAttemptQuestionAnswer(mixins.TimestampMixin, models.Model):
     )
 
     DEFAULT_ORDERING = (sa.asc("created_at"),)
-
-
-# Constants for search configuration
-QUIZ_SEARCH_CONFIG = {
-    "language": "pg_catalog.english",
-    "weights": {
-        "title": "A",
-        "description": "B",
-        "difficulty": "C",
-    },
-}
-
-QUESTION_SEARCH_CONFIG = {
-    "language": "pg_catalog.english",
-    "weights": {
-        "question": "A",
-        "hint": "B",
-        "options": "C",
-        "difficulty": "D",
-    },
-}
-
-QUIZ_SEARCH_VECTOR_DDLS = (
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS quizzes_search_tsvector_update ON {Quiz.__tablename__};
-    DROP FUNCTION IF EXISTS update_quizzes_search_tsvector();
-    DROP FUNCTION IF EXISTS backfill_quizzes_tsvectors();
-    """),
-    # Create backfill functions
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION backfill_quizzes_tsvectors() RETURNS void AS 
-    $$
-    DECLARE
-        quizzes_count integer;
-    BEGIN
-        UPDATE {Quiz.__tablename__}
-        SET search_tsvector = 
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(title, '')), '{QUIZ_SEARCH_CONFIG["weights"]["title"]}') ||
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(description, '')), '{QUIZ_SEARCH_CONFIG["weights"]["description"]}') ||
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(difficulty, '')), '{QUIZ_SEARCH_CONFIG["weights"]["difficulty"]}')
-        WHERE search_tsvector IS NULL;
-
-        GET DIAGNOSTICS quizzes_count = ROW_COUNT;
-        RAISE NOTICE 'Updated %% quiz records', quizzes_count;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Backfill failed for quizzes: %%', SQLERRM;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    # Create trigger functions
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_quizzes_search_tsvector() RETURNS trigger AS 
-    $$
-    BEGIN
-        NEW.search_tsvector := 
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(NEW.title, '')), '{QUIZ_SEARCH_CONFIG["weights"]["title"]}') ||
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(NEW.description, '')), '{QUIZ_SEARCH_CONFIG["weights"]["description"]}') ||
-            setweight(to_tsvector('{QUIZ_SEARCH_CONFIG["language"]}', coalesce(NEW.difficulty, '')), '{QUIZ_SEARCH_CONFIG["weights"]["difficulty"]}');
-        RETURN NEW;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Failed to update quiz tsvector: %%', SQLERRM;
-        NEW.search_tsvector := NULL;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    # Create triggers
-    sa.DDL(f"""
-    CREATE TRIGGER quizzes_search_tsvector_update
-        BEFORE INSERT OR UPDATE OF title, description, difficulty ON {Quiz.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_quizzes_search_tsvector();
-    """),
-    # Execute backfill
-    sa.DDL("SELECT backfill_quizzes_tsvectors();"),
-)
-
-
-QUESTION_SEARCH_VECTOR_DDLS = (
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS questions_search_tsvector_update ON {Question.__tablename__};
-    DROP FUNCTION IF EXISTS update_questions_search_tsvector();
-    DROP FUNCTION IF EXISTS backfill_questions_tsvectors();
-    """),
-    # Create backfill functions
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION backfill_questions_tsvectors() RETURNS void AS 
-    $$
-    DECLARE
-        questions_count integer;
-    BEGIN
-        UPDATE {Question.__tablename__}
-        SET search_tsvector = 
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(question, '')), '{QUESTION_SEARCH_CONFIG["weights"]["question"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(hint, '')), '{QUESTION_SEARCH_CONFIG["weights"]["hint"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(array_to_string(options, ' '), '')), '{QUESTION_SEARCH_CONFIG["weights"]["options"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(difficulty, '')), '{QUESTION_SEARCH_CONFIG["weights"]["difficulty"]}')
-        WHERE search_tsvector IS NULL;
-
-        GET DIAGNOSTICS questions_count = ROW_COUNT;
-        RAISE NOTICE 'Updated %% question records', questions_count;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Backfill failed for questions: %%', SQLERRM;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    # Create trigger functions
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_questions_search_tsvector() RETURNS trigger AS 
-    $$
-    BEGIN
-        NEW.search_tsvector := 
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(NEW.question, '')), '{QUESTION_SEARCH_CONFIG["weights"]["question"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(NEW.hint, '')), '{QUESTION_SEARCH_CONFIG["weights"]["hint"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(array_to_string(NEW.options, ' '), '')), '{QUESTION_SEARCH_CONFIG["weights"]["options"]}') ||
-            setweight(to_tsvector('{QUESTION_SEARCH_CONFIG["language"]}', coalesce(NEW.difficulty, '')), '{QUESTION_SEARCH_CONFIG["weights"]["difficulty"]}');
-        RETURN NEW;
-    EXCEPTION WHEN OTHERS THEN
-        RAISE WARNING 'Failed to update question tsvector: %%', SQLERRM;
-        NEW.search_tsvector := NULL;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER questions_search_tsvector_update
-        BEFORE INSERT OR UPDATE OF question, hint, options, difficulty ON {Question.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_questions_search_tsvector();
-    """),
-    # Execute backfill
-    sa.DDL("SELECT backfill_questions_tsvectors();"),
-)
-
-
-QUIZ_ATTEMPT_DDLS = (
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS update_attempted_questions_trigger ON {QuizAttemptQuestionAnswer.__tablename__};
-    DROP FUNCTION IF EXISTS update_attempted_questions();
-    """),
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_attempted_questions() RETURNS trigger AS 
-    $$
-    BEGIN
-        UPDATE {QuizAttempt.__tablename__}
-        SET attempted_questions = (
-            SELECT COUNT(DISTINCT question_id)
-            FROM {QuizAttemptQuestionAnswer.__tablename__}
-            WHERE quiz_attempt_id = NEW.quiz_attempt_id
-        )
-        WHERE id = NEW.quiz_attempt_id;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER update_attempted_questions_trigger
-        AFTER INSERT OR UPDATE ON {QuizAttemptQuestionAnswer.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_attempted_questions();
-    """),
-)
-
-
-QUIZ_QUESTION_COUNT_DDLS = (
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS update_questions_count_trigger ON {QuestionToQuizAssociation.__tablename__};
-    DROP TRIGGER IF EXISTS update_questions_count_on_question_update_trigger ON {Question.__tablename__};
-    DROP FUNCTION IF EXISTS update_questions_count();
-    """),
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_questions_count() RETURNS trigger AS 
-    $$
-    BEGIN
-        UPDATE {Quiz.__tablename__}
-        SET questions_count = (
-            SELECT COUNT(*)
-            FROM {QuestionToQuizAssociation.__tablename__} AS assoc
-            JOIN {Question.__tablename__} AS q
-            ON assoc.question_id = q.id
-            WHERE assoc.quiz_id = NEW.quiz_id AND q.is_deleted = FALSE
-        )
-        WHERE id = NEW.quiz_id;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER update_questions_count_trigger
-        AFTER INSERT OR DELETE ON {QuestionToQuizAssociation.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_questions_count();
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER update_questions_count_on_question_update_trigger
-        AFTER UPDATE OF is_deleted ON {Question.__tablename__}
-        FOR EACH ROW
-        EXECUTE FUNCTION update_questions_count();
-    """),
-)
-
-
-# Trigger function to update the score field in QuizAttempt on QuizAttemptQuestionAnswer insert/update
-QUIZ_ATTEMPT_SCORE_DDLS = (
-    sa.DDL(f"""
-    DROP TRIGGER IF EXISTS update_quiz_attempt_score_on_final_trigger ON {QuizAttemptQuestionAnswer.__tablename__};
-    DROP TRIGGER IF EXISTS update_quiz_attempt_score_on_correct_trigger ON {QuizAttemptQuestionAnswer.__tablename__};
-    DROP FUNCTION IF EXISTS update_quiz_attempt_score();
-    """),
-    sa.DDL(f"""
-    CREATE OR REPLACE FUNCTION update_quiz_attempt_score() RETURNS trigger AS 
-    $$
-    BEGIN
-        UPDATE {QuizAttempt.__tablename__}
-        SET score = (
-            SELECT COUNT(*)
-            FROM {QuizAttemptQuestionAnswer.__tablename__}
-            WHERE quiz_attempt_id = NEW.quiz_attempt_id AND is_correct = TRUE
-        )
-        WHERE id = NEW.quiz_attempt_id;
-        RETURN NEW;
-    END;
-    $$ LANGUAGE plpgsql;
-    """),
-    sa.DDL(f"""
-    CREATE TRIGGER update_quiz_attempt_score_on_final_trigger
-        AFTER INSERT OR UPDATE OF is_final ON {QuizAttemptQuestionAnswer.__tablename__}
-        FOR EACH ROW
-        WHEN (NEW.is_final = TRUE)
-        EXECUTE FUNCTION update_quiz_attempt_score();
-    """),
-    # Add this just to be safe incase `is_correct` is updated even after `is_final` is set to true.
-    # So that the attempt score remains accurate.
-    sa.DDL(f"""
-    CREATE TRIGGER update_quiz_attempt_score_on_correct_trigger
-        AFTER UPDATE OF is_correct ON {QuizAttemptQuestionAnswer.__tablename__}
-        FOR EACH ROW
-        WHEN (NEW.is_final = TRUE)
-        EXECUTE FUNCTION update_quiz_attempt_score();
-    """),
-)
-
-
-QUIZ_DDLS = (
-    *QUIZ_SEARCH_VECTOR_DDLS,
-    *QUESTION_SEARCH_VECTOR_DDLS,
-    *QUIZ_ATTEMPT_DDLS,
-    *QUIZ_QUESTION_COUNT_DDLS,
-    *QUIZ_ATTEMPT_SCORE_DDLS,
-)
-
-
-def execute_quiz_ddls():
-    """Execute quiz-related DDL statements once during application startup."""
-    # Prevents multiple workers from executing DDLs concurrently which
-    # may trigger deadlocks from the process trying to acquire AccessExclusiveLock
-    # on the same database object(table) at the same time
-    with multiprocessing.Lock(), setup.engine.begin() as conn:
-        try:
-            for ddl in QUIZ_DDLS:
-                conn.execute(ddl)
-            conn.execute(sa.text("COMMIT"))
-            logger.info("Successfully executed quiz DDL statements")
-        except Exception as exc:
-            logger.error(f"Failed to execute quiz DDL statements: {exc}")
-            raise
-
-
-__all__ = ["Question", "Quiz", "execute_quiz_ddls"]

@@ -54,13 +54,17 @@ async def create_client(
         )
         await session.flush()
         api_key = await crud.create_api_key(
-            session=session, client=api_client, valid_until=valid_until
+            session=session,
+            client_id=api_client.id,
+            valid_until=valid_until,
         )
         await session.commit()
 
     click.echo(
         click.style(
-            "##############################################################", bold=True, fg="white"
+            "##############################################################",
+            bold=True,
+            fg="white",
         )
     )
     click.echo(
@@ -79,7 +83,9 @@ async def create_client(
     )
     click.echo(
         click.style(
-            "##############################################################", bold=True, fg="white"
+            "##############################################################",
+            bold=True,
+            fg="white",
         )
     )
 

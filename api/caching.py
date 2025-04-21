@@ -1,11 +1,14 @@
 import typing
 import orjson
 import hashlib
+from redis import asyncio as async_pyredis
+
 from starlette.requests import Request
 from starlette.responses import Response
-
 from fastapi.encoders import jsonable_encoder
 from fastapi_cache import Coder
+
+from helpers.fastapi.config import settings
 
 
 def _safe_serialize(obj: typing.Any) -> str:
@@ -117,3 +120,6 @@ class ORJsonCoder(Coder):
     @classmethod
     def decode(cls, value: bytes) -> typing.Any:
         return orjson.loads(value)
+
+
+redis = async_pyredis.from_url(settings.REDIS_URL, decode_responses=False)

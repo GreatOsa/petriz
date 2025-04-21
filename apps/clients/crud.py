@@ -1,4 +1,5 @@
 import datetime
+import uuid
 import faker
 import typing
 import fastapi.exceptions
@@ -7,13 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
 from helpers.fastapi.requests.query import OrderingExpressions
+from helpers.fastapi.utils import timezone
 
-from .models import (
-    APIClient,
-    ClientType,
-    APIKey,
-    generate_api_key_secret,
-)
+from .models import APIClient, ClientType, APIKey
 from apps.accounts.models import Account
 
 fake = faker.Faker("en-us")
@@ -32,22 +29,22 @@ def generate_api_client_name() -> str:
 async def check_api_client_name_exists(
     session: AsyncSession,
     name: str,
-    account: typing.Optional[Account] = None,
+    account_id: typing.Optional[uuid.UUID] = None,
 ) -> bool:
     """Check if a client name exists already."""
     filters = [APIClient.name == name, ~APIClient.is_deleted]
-    if account:
-        filters.append(APIClient.account_id == account.id)
+    if account_id:
+        filters.append(APIClient.account_id == account_id)
     exists = await session.execute(sa.select(sa.exists().where(*filters)))
     return exists.scalar_one()
 
 
 async def check_account_can_create_more_clients(
-    session: AsyncSession, account: Account
+    session: AsyncSession, account_id: uuid.UUID
 ):
     client_count = await session.execute(
         sa.select(sa.func.count()).where(
-            APIClient.account_id == account.id,
+            APIClient.account_id == account_id,
             ~APIClient.is_deleted,
         )
     )
@@ -56,24 +53,24 @@ async def check_account_can_create_more_clients(
 
 async def create_api_client(
     session: AsyncSession,
-    account: typing.Optional[Account] = None,
+    account_id: typing.Optional[uuid.UUID] = None,
     name: typing.Optional[str] = None,
     **kwargs,
 ):
     name = name or generate_api_client_name()
-    if await check_api_client_name_exists(session, name, account):
+    if await check_api_client_name_exists(session, name, account_id):
         raise fastapi.exceptions.ValidationException(
             errors=[
                 "Client with this name already exists!",
             ]
         )
 
-    if account:
+    if account_id:
         kwargs["client_type"] = ClientType.USER
 
     api_client = APIClient(
         name=name,  # type: ignore
-        account=account,  # type: ignore
+        account_id=account_id,  # type: ignore
         **kwargs,
     )
     session.add(api_client)
@@ -95,9 +92,12 @@ async def retrieve_api_client(
         query = query.with_for_update(nowait=True, read=True)
 
     result = await session.execute(
-        query.options(joinedload(APIClient.api_key), joinedload(APIClient.account))
+        query.options(
+            joinedload(APIClient.api_key),
+            joinedload(APIClient.account),
+        )
     )
-    return result.scalar_one_or_none()
+    return result.scalar()
 
 
 async def retrieve_api_clients(
@@ -143,23 +143,67 @@ async def retrieve_api_clients_by_uid(
     return list(result.scalars().all())
 
 
-async def delete_api_client(session: AsyncSession, api_client: APIClient):
+async def delete_api_client(
+    session: AsyncSession,
+    uid: str,
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
+    **filters,
+) -> typing.Optional[APIClient]:
     """
-    Delete an API client. This will also disable the client and its associated api key.
+    Soft delete an API client. This will also disable the client.
+
+    :param session: The database session to use.
+    :param uid: The UID of the API client to delete.
+    :param deleted_by_id: The ID of the user who deleted the client.
+    :param filters: Additional filters to apply when retrieving the client.
+    :return: The deleted API client, or None if no client was found.
     """
-    api_client.is_deleted = True
-    api_client.disabled = True
-    session.add(api_client)
-    return None
-
-
-async def delete_api_clients_by_uid(
-    session: AsyncSession, uids: typing.List[str], **filters
-):
-    result = await session.execute(
-        sa.delete(APIClient).where(APIClient.id.in_(uids)).filter_by(**filters)
+    api_client = await retrieve_api_client(
+        session,
+        uid=uid,
+        for_update=True,
+        **filters,
     )
-    return result.scalar()
+    if not api_client:
+        return
+
+    api_client.is_deleted = True
+    api_client.is_disabled = True
+    api_client.deleted_by_id = deleted_by_id
+    api_client.deleted_at = timezone.now()
+    session.add(api_client)
+    return api_client
+
+
+async def bulk_delete_api_clients_by_uid(
+    session: AsyncSession,
+    uids: typing.Sequence[str],
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
+    **filters,
+) -> typing.Optional[typing.List[APIClient]]:
+    """
+    Soft delete API clients in bulk. This will also disable the clients.
+
+    :param session: The database session to use.
+    :param uids: The UIDs of the API clients to delete.
+    :param deleted_by_id: The ID of the user who deleted the clients.
+    :param filters: Additional filters to apply when retrieving the clients.
+    :return: A list of deleted API clients, or None if no clients were found.
+    """
+    api_clients = await retrieve_api_clients_by_uid(
+        session,
+        uids=uids,
+        **filters,
+    )
+    if not api_clients:
+        return
+    for client in api_clients:
+        client.is_deleted = True
+        client.is_disabled = True
+        client.deleted_by_id = deleted_by_id
+        client.deleted_at = timezone.now()
+        session.add(client)
+    return api_clients
 
 
 ############
@@ -168,13 +212,13 @@ async def delete_api_clients_by_uid(
 
 
 async def check_api_key_for_client_exists(
-    session: AsyncSession, client: APIClient
+    session: AsyncSession, client_id: uuid.UUID
 ) -> bool:
     """Check if an api key exists for a client."""
     exists = await session.execute(
         sa.select(
             sa.exists().where(
-                APIKey.client_id == client.id,
+                APIKey.client_id == client_id,
             )
         )
     )
@@ -183,12 +227,12 @@ async def check_api_key_for_client_exists(
 
 async def create_api_key(
     session: AsyncSession,
-    client: APIClient,
+    client_id: uuid.UUID,
     valid_until: typing.Optional[datetime.datetime] = None,
 ) -> APIKey:
     """Create a new api key for the API client."""
     api_key = APIKey(
-        client_id=client.id,  # type: ignore
+        client_id=client_id,  # type: ignore
         valid_until=valid_until,  # type: ignore
     )
     session.add(api_key)
@@ -207,19 +251,3 @@ async def retrieve_api_key_by_secret(
         .options(joinedload(APIKey.client))
     )
     return result.scalar_one_or_none()
-
-
-async def refresh_api_key_secret(session: AsyncSession, api_key: APIKey):
-    api_key.secret = generate_api_key_secret()
-    session.add(api_key)
-    return api_key
-
-
-__all__ = [
-    "create_api_client",
-    "retrieve_api_client",
-    "retrieve_api_clients",
-    "check_api_key_for_client_exists",
-    "create_api_key",
-    "retrieve_api_key_by_secret",
-]

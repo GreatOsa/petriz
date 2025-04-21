@@ -109,28 +109,14 @@ TIMEZONE = "UTC"
 AUTH_USER_MODEL = "accounts.Account"
 
 MIDDLEWARE = [
-    "helpers.fastapi.requests.middlewares.MaintenanceMiddleware",
-    (
-        "starlette.middleware.cors.CORSMiddleware",
-        {
-            "allow_origins": ["*"],
-            "allow_credentials": True,
-            "allow_methods": ["*"],
-            "allow_headers": ["*"],
-        },
-    ),
     # "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
     "helpers.fastapi.middlewares.core.RequestProcessTimeMiddleware",
+    "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
     (
-        "starlette.middleware.gzip.GZipMiddleware",
+        "helpers.fastapi.auditing.middleware.ConnectionEventLogMiddleware",
         {
-            "minimum_size": 500,
-            "compresslevel": 9,
-        },
-    ),
-    (
-        "api.middlewares.auditing.ConnectionEventLogMiddleware",
-        {
+            "logger": "api.auditing.redis_cached_logger",
+            "log_builder": "api.auditing.build_audit_log_entries",
             "excluded_paths": [
                 r"^/api/openapi.json$",
                 r"^/api/docs.*$",
@@ -143,8 +129,23 @@ MIDDLEWARE = [
             "compress_body": True,
         },
     ),
+    (
+        "starlette.middleware.cors.CORSMiddleware",
+        {
+            "allow_origins": ["*"],
+            "allow_credentials": True,
+            "allow_methods": ["*"],
+            "allow_headers": ["*"],
+        },
+    ),
+    (
+        "starlette.middleware.gzip.GZipMiddleware",
+        {
+            "minimum_size": 1024 * 10,  # 10 KB
+            "compresslevel": 9,
+        },
+    ),
     *default_settings.MIDDLEWARE,
-    "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
 ]
 
 EXCEPTION_HANDLERS = {
@@ -182,7 +183,7 @@ RESPONSE_FORMATTER = {
     "exclude": [r"^(?!/api).*$"]  # Exclude all routes that do not start with /api
 }
 
-REDIS_LOCATION = os.getenv("REDIS_LOCATION")
+REDIS_URL = os.getenv("REDIS_URL")
 
 AUTH_TOKEN_VALIDITY_PERIOD = datetime.timedelta(days=30)
 
@@ -195,6 +196,9 @@ SENSITIVE_HEADERS = {
 LOG_CONNECTION_EVENTS = (
     os.getenv("LOG_CONNECTION_EVENTS", "False").lower() == "true"
 )  # Enable/disable request event logging
+AUDIT_LOGGING_BATCH_SIZE = 1000  # Number of entries to log in a single batch
+AUDIT_LOGGING_INTERVAL = 60 # Interval in seconds to log entries
 
 MAINTENANCE_MODE = {"status": False, "message": "default:techno"}
-ANYIO_MAX_WORKER_THREADS = 100
+
+ANYIO_MAX_WORKER_THREADS: int = 100

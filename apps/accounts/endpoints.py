@@ -1,4 +1,5 @@
 import fastapi
+from sqlalchemy.exc import OperationalError
 
 from . import schemas
 from . import crud
@@ -6,12 +7,13 @@ from helpers.fastapi.mailing import send_mail
 from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
+from helpers.fastapi.exceptions import capture
+from helpers.fastapi.auditing.dependencies import event
 from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
 )
 from api.dependencies.authentication import authentication_required
-from api.dependencies.auditing import event
 from apps.tokens import auth_tokens, totps
 from .models import Account
 
@@ -33,7 +35,7 @@ router = fastapi.APIRouter(
 @router.post(
     "/registration/initiate",
     tags=["registration"],
-    summary="Initiate the registration process for a new account.",
+    description="Initiate the registration process for a new account.",
     dependencies=[
         event(
             "account_registration_initiation",
@@ -43,6 +45,8 @@ router = fastapi.APIRouter(
         internal_api_clients_only,
         permissions_required("accounts::*::create"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def registration_initiation(
     data: schemas.AccountRegistrationInitiationSchema,
@@ -79,7 +83,7 @@ async def registration_initiation(
 @router.post(
     "/registration/verify",
     tags=["registration"],
-    summary="Verify the OTP token for email registration.",
+    description="Verify the OTP token for email registration.",
     dependencies=[
         event(
             "account_registration_verification",
@@ -89,6 +93,13 @@ async def registration_initiation(
         internal_api_clients_only,
         permissions_required("accounts::*::create"),
     ],
+    response_model=response.DataSchema[
+        response.NewSchema(
+            "PasswordSetTokenSchema",
+            {"password_set_token": str},
+        )
+    ],
+    status_code=200,
 )
 async def registration_email_verification(
     data: schemas.EmailOTPVerificationSchema,
@@ -125,10 +136,19 @@ async def registration_email_verification(
     )
 
 
+AuthCompletionSchema = response.NewSchema(
+    "AuthCompletionSchema",
+    {
+        "account": schemas.AccountSchema,
+        "auth_token": str,
+    },
+)
+
+
 @router.post(
     "/registration/complete",
     tags=["registration"],
-    summary="Complete the registration process for a new account.",
+    description="Complete the registration process for a new account.",
     dependencies=[
         event(
             "account_registration_completion",
@@ -138,6 +158,8 @@ async def registration_email_verification(
         internal_api_clients_only,
         permissions_required("accounts::*::create"),
     ],
+    response_model=response.DataSchema[AuthCompletionSchema],
+    status_code=201,
 )
 async def registration_completion(
     data: schemas.AccountRegistrationCompletionSchema,
@@ -190,7 +212,7 @@ async def registration_completion(
         "account": schemas.AccountSchema.model_validate(account),
         "auth_token": auth_token.secret,
     }
-    return response.success(data=response_data)
+    return response.created("Account created successfully.", data=response_data)
 
 
 ##########################
@@ -201,7 +223,7 @@ async def registration_completion(
 @router.post(
     "/authentication/initiate",
     tags=["authentication"],
-    summary="Initiate the authentication process for a new account.",
+    description="Initiate the authentication process for a new account.",
     dependencies=[
         event(
             "account_authentication_initiation",
@@ -211,6 +233,8 @@ async def registration_completion(
         internal_api_clients_only,
         permissions_required("accounts::*::authenticate"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def authentication_initiation(
     data: schemas.AccountAuthenticationInitiationSchema,
@@ -247,7 +271,7 @@ async def authentication_initiation(
 @router.post(
     "/authentication/complete",
     tags=["authentication"],
-    summary="Verify the OTP token for sent to authenticated account email to receive auth token.",
+    description="Verify the OTP token for sent to authenticated account email to receive auth token.",
     dependencies=[
         event(
             "account_authentication_completion",
@@ -257,6 +281,8 @@ async def authentication_initiation(
         internal_api_clients_only,
         permissions_required("accounts::*::authenticate"),
     ],
+    response_model=response.DataSchema[AuthCompletionSchema],
+    status_code=200,
 )
 async def authentication_completion(
     data: schemas.EmailOTPVerificationSchema,
@@ -311,7 +337,7 @@ async def authentication_completion(
 @router.post(
     "/password-reset/initiate",
     tags=["password_reset"],
-    summary="Initiate the password reset process for an account.",
+    description="Initiate the password reset process for an account.",
     dependencies=[
         event(
             "account_password_reset_initiation",
@@ -321,6 +347,8 @@ async def authentication_completion(
         internal_api_clients_only,
         permissions_required("accounts::*::update"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def password_reset_initiation(
     data: schemas.PasswordResetInitiationSchema,
@@ -352,7 +380,7 @@ async def password_reset_initiation(
 @router.post(
     "/password-reset/verify-otp",
     tags=["password_reset"],
-    summary="Verify the OTP token for password reset.",
+    description="Verify the OTP token for password reset.",
     dependencies=[
         event(
             "account_password_reset_verification",
@@ -362,6 +390,13 @@ async def password_reset_initiation(
         internal_api_clients_only,
         permissions_required("accounts::*::update"),
     ],
+    response_model=response.DataSchema[
+        response.NewSchema(
+            "PasswordResetTokenSchema",
+            {"password_reset_token": str},
+        )
+    ],
+    status_code=200,
 )
 async def password_reset_verification(
     data: schemas.EmailOTPVerificationSchema,
@@ -394,7 +429,7 @@ async def password_reset_verification(
 @router.post(
     "/password-reset/complete",
     tags=["password_reset"],
-    summary="Complete the password reset process for an account.",
+    description="Complete the password reset process for an account.",
     dependencies=[
         event(
             "account_password_reset_completion",
@@ -404,6 +439,8 @@ async def password_reset_verification(
         internal_api_clients_only,
         permissions_required("accounts::*::update"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def password_reset_completion(
     data: schemas.PasswordResetCompletionSchema,
@@ -444,7 +481,7 @@ async def password_reset_completion(
 @router.get(
     "/account",
     tags=["account"],
-    summary="Retrieve the authenticated account details.",
+    description="Retrieve the authenticated account details.",
     dependencies=[
         event(
             "account_retrieve",
@@ -454,6 +491,8 @@ async def password_reset_completion(
         authentication_required,
         permissions_required("accounts::*::view"),
     ],
+    response_model=response.DataSchema[schemas.AccountSchema],
+    status_code=200,
 )
 async def retrieve_account(account: ActiveUser[Account]):
     return response.success(data=schemas.AccountSchema.model_validate(account))
@@ -462,7 +501,7 @@ async def retrieve_account(account: ActiveUser[Account]):
 @router.patch(
     "/account",
     tags=["account"],
-    summary="Update the authenticated account details.",
+    description="Update the authenticated account details.",
     dependencies=[
         event(
             "account_update",
@@ -472,6 +511,8 @@ async def retrieve_account(account: ActiveUser[Account]):
         authentication_required,
         permissions_required("accounts::*::update"),
     ],
+    response_model=response.DataSchema[schemas.AccountSchema],
+    status_code=200,
 )
 async def update_account(
     data: schemas.AccountUpdateSchema,
@@ -491,7 +532,7 @@ async def update_account(
 @router.post(
     "/account/change-email/initiate",
     tags=["account"],
-    summary="Update the authenticated account email.",
+    description="Update the authenticated account email.",
     dependencies=[
         event(
             "account_email_change_initiation",
@@ -502,6 +543,8 @@ async def update_account(
         permissions_required("accounts::*::update"),
         authentication_required,
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def initiate_email_change(
     data: schemas.EmailChangeSchema,
@@ -535,7 +578,7 @@ async def initiate_email_change(
 @router.post(
     "/account/change-email/complete",
     tags=["account"],
-    summary="Verify the OTP token for email change and update the authenticated account email.",
+    description="Verify the OTP token for email change and update the authenticated account email.",
     dependencies=[
         event(
             "account_email_change_completion",
@@ -546,6 +589,8 @@ async def initiate_email_change(
         permissions_required("accounts::*::update"),
         authentication_required,
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def complete_email_change(
     data: schemas.EmailOTPVerificationSchema,
@@ -573,7 +618,7 @@ async def complete_email_change(
 @router.post(
     "/account/change-password",
     tags=["account"],
-    summary="Update the authenticated account password.",
+    description="Update the authenticated account password.",
     dependencies=[
         event(
             "account_password_change",
@@ -584,6 +629,8 @@ async def complete_email_change(
         permissions_required("accounts::*::update"),
         authentication_required,
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def change_password(
     data: schemas.PasswordChangeSchema,
@@ -612,6 +659,9 @@ async def change_password(
         permissions_required("accounts::*::authenticate"),
         authentication_required,
     ],
+    description="Logout the authenticated account.",
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Account]):
     await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
@@ -622,7 +672,7 @@ async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Acc
 @router.delete(
     "/account",
     tags=["account"],
-    summary="Delete the authenticated account.",
+    description="Delete the authenticated account.",
     dependencies=[
         event(
             "account_delete",
@@ -633,12 +683,27 @@ async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Acc
         permissions_required("accounts::*::delete"),
         authentication_required,
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def delete_account(user: ActiveUser[Account], session: AsyncDBSession):
-    user.is_deleted = True
-    user.is_active = False
-    session.add(user)
+    async with capture.capture(
+        OperationalError,
+        code=409,
+        content="There was a conflict while attempting to delete account",
+    ):
+        deleted_account = await crud.delete_account(
+            session,
+            account_id=user.id,
+            deleted_by_id=user.id,
+        )
+    if not deleted_account:
+        return response.conflict("This account has already been deleted")
+
     # Invalidate all authentications for the account
-    await auth_tokens.delete_auth_tokens(session=session, account_id=user.id)
+    await auth_tokens.delete_auth_tokens(
+        session=session,
+        account_id=deleted_account.id,
+    )
     await session.commit()
-    return response.no_content("Account deleted successfully!")
+    return response.success("Account deleted successfully!")

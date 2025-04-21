@@ -1,3 +1,4 @@
+from turtle import st
 import fastapi
 import typing
 from annotated_types import Le
@@ -5,7 +6,7 @@ from fastapi_cache.decorator import cache
 
 from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi import response
-from helpers.fastapi.response.pagination import paginated_data
+from helpers.fastapi.response.pagination import paginated_data, PaginatedResponse
 from helpers.fastapi.requests.query import (
     Limit,
     Offset,
@@ -17,7 +18,7 @@ from api.dependencies.authorization import (
     permissions_required,
 )
 from api.dependencies.authentication import authentication_required
-from api.dependencies.auditing import event
+from helpers.fastapi.auditing.dependencies import event
 from apps.search.query import TimestampGte, TimestampLte
 from . import schemas, crud
 from .query import (
@@ -61,6 +62,8 @@ router = fastapi.APIRouter(
             "audit_log_entries::*::list",
         ),
     ],
+    response_model=PaginatedResponse[schemas.AuditLogEntrySchema], # type: ignore
+    status_code=200,
 )
 @cache(namespace="audit_logs", expire=60)
 async def retrieve_audit_logs(

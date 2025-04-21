@@ -69,6 +69,9 @@ async def check_client_credentials(
     :param session: The database session.
     :return: True if the connection was made by an authorized/valid API client, False otherwise.
     """
+    if not session:
+        raise ValueError("Database session is required for credentials check")
+
     client = getattr(credentials.connection.state, "client", None)
     if isinstance(client, APIClient):
         return True
@@ -79,13 +82,8 @@ async def check_client_credentials(
     if not (client_secret and client_id):
         return False
 
-    if session:
-        api_client = await retrieve_api_client(session, uid=client_id)
-    else:
-        async with get_async_session() as session:
-            api_client = await retrieve_api_client(session, uid=client_id)
-
-    if not api_client or api_client.disabled:
+    api_client = await retrieve_api_client(session, uid=client_id)
+    if not api_client or api_client.is_disabled:
         return False
 
     api_secret_is_valid = (

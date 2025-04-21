@@ -3,10 +3,11 @@ import fastapi
 import typing
 from typing_extensions import Doc
 from fastapi_cache.decorator import cache
+from sqlalchemy.exc import OperationalError
 
 from helpers.fastapi.dependencies.connections import AsyncDBSession, User
 from helpers.fastapi.response import shortcuts as response
-from helpers.fastapi.response.pagination import paginated_data
+from helpers.fastapi.response.pagination import paginated_data, PaginatedResponse
 from helpers.fastapi.dependencies.access_control import staff_user_only, ActiveUser
 from helpers.fastapi.requests.query import Limit, Offset, clean_params
 from helpers.fastapi.exceptions import capture
@@ -18,7 +19,7 @@ from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
 )
-from api.dependencies.auditing import event
+from helpers.fastapi.auditing.dependencies import event
 from .query import (
     Startswith,
     Verified,
@@ -66,6 +67,8 @@ TermSourceUID: typing.TypeAlias = typing.Annotated[
         authenticate_connection,
     ],
     description="Search terms in the glossary.",
+    response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
+    status_code=200,
 )
 @cache(namespace="search")
 async def search_terms(
@@ -161,7 +164,9 @@ async def search_terms(
         permissions_required("terms::*::create"),
         authentication_required,
     ],
-    description="Add a new term to the glossary",
+    description="Add a new term to the glossary ",
+    response_model=response.DataSchema[schemas.TermSchema],
+    status_code=201,
 )
 async def create_term(
     user: ActiveUser[Account],
@@ -229,6 +234,8 @@ async def create_term(
         authenticate_connection,
     ],
     description="Retrieve a glossary term by its UID",
+    response_model=response.DataSchema[schemas.TermSchema],
+    status_code=200,
 )
 @cache(namespace="terms_retrieve")
 async def retrieve_term(
@@ -264,6 +271,8 @@ async def retrieve_term(
         staff_user_only,
     ],
     description="Update a term by its UID",
+    response_model=response.DataSchema[schemas.TermSchema],
+    status_code=200,
 )
 async def update_term(
     session: AsyncDBSession,
@@ -336,19 +345,29 @@ async def update_term(
         staff_user_only,
     ],
     description="Delete a term by its UID",
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def delete_term(
     session: AsyncDBSession,
     term_uid: TermUID,
+    user: ActiveUser[Account],
 ):
-    term = await crud.retrieve_term_by_uid(session, uid=term_uid)
-    if not term:
+    async with capture.capture(
+        OperationalError,
+        code=409,
+        content="A conflict occurred while attempting to delete term",
+    ):
+        deleted_term = await crud.delete_term_by_uid(
+            session,
+            uid=term_uid,
+            deleted_by_id=user.id,
+        )
+    if not deleted_term:
         return response.notfound("Term matching the given query does not exist")
 
-    term.is_deleted = True
-    session.add(term)
     await session.commit()
-    return response.success(f"{term.name} has been deleted")
+    return response.success(f"{deleted_term.name} has been deleted")
 
 
 @router.get(
@@ -362,6 +381,8 @@ async def delete_term(
         ),
         permissions_required("topics::*::list"),
     ],
+    response_model=PaginatedResponse[schemas.TopicSchema],  # type: ignore
+    status_code=200,
 )
 @cache(namespace="topics_list")
 async def retrieve_topics(
@@ -396,6 +417,8 @@ async def retrieve_topics(
         authentication_required,
         staff_user_only,
     ],
+    response_model=response.DataSchema[schemas.TopicSchema],
+    status_code=201,
 )
 async def create_topic(
     session: AsyncDBSession,
@@ -421,6 +444,8 @@ async def create_topic(
         ),
         permissions_required("topics::*::view"),
     ],
+    response_model=response.DataSchema[schemas.TopicSchema],
+    status_code=200,
 )
 @cache(namespace="topics_retrieve")
 async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
@@ -446,6 +471,8 @@ async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
         staff_user_only,
     ],
     description="Update a topic by its UID",
+    response_model=response.DataSchema[schemas.TopicSchema],
+    status_code=200,
 )
 async def update_topic(
     session: AsyncDBSession,
@@ -483,16 +510,29 @@ async def update_topic(
         staff_user_only,
     ],
     description="Delete a topic by its UID",
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
-async def delete_topic(session: AsyncDBSession, topic_uid: TopicUID):
-    topic = await crud.retrieve_topic_by_uid(session, uid=topic_uid)
-    if not topic:
+async def delete_topic(
+    session: AsyncDBSession,
+    topic_uid: TopicUID,
+    user: ActiveUser[Account],
+):
+    async with capture.capture(
+        OperationalError,
+        code=409,
+        content="A conflict occurred while attempting to delete topic",
+    ):
+        deleted_topic = await crud.delete_topic_by_uid(
+            session,
+            uid=topic_uid,
+            deleted_by_id=user.id,
+        )
+    if not deleted_topic:
         return response.notfound("Topic matching the given query does not exist")
 
-    topic.is_deleted = True
-    session.add(topic)
     await session.commit()
-    return response.success(f"{topic.name} has been deleted")
+    return response.success(f"{deleted_topic.name} has been deleted")
 
 
 @router.get(
@@ -510,6 +550,8 @@ async def delete_topic(session: AsyncDBSession, topic_uid: TopicUID):
             "terms::*::list",
         ),
     ],
+    response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
+    status_code=200,
 )
 @cache(namespace="topic_terms_list")
 async def retrieve_topic_terms(
@@ -570,6 +612,8 @@ async def retrieve_topic_terms(
         ),
         permissions_required("term_sources::*::list"),
     ],
+    response_model=PaginatedResponse[schemas.TermSourceSchema],  # type: ignore
+    status_code=200,
 )
 @cache(namespace="term_sources_list")
 async def retrieve_term_sources(
@@ -607,6 +651,8 @@ async def retrieve_term_sources(
         authentication_required,
         staff_user_only,
     ],
+    response_model=response.DataSchema[schemas.TermSourceSchema],
+    status_code=201,
 )
 async def create_term_source(
     session: AsyncDBSession,
@@ -614,7 +660,7 @@ async def create_term_source(
 ):
     term_source = await crud.create_term_source(session, **data.model_dump())
     await session.commit()
-    return response.success(data=schemas.TermSourceSchema.model_validate(term_source))
+    return response.created(data=schemas.TermSourceSchema.model_validate(term_source))
 
 
 @router.get(
@@ -629,6 +675,8 @@ async def create_term_source(
         ),
         permissions_required("term_sources::*::view"),
     ],
+    response_model=response.DataSchema[schemas.TermSourceSchema],
+    status_code=200,
 )
 @cache(namespace="term_source_retrieve")
 async def retrieve_term_source(
@@ -657,6 +705,8 @@ async def retrieve_term_source(
             "terms::*::list",
         ),
     ],
+    response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
+    status_code=200,
 )
 @cache(namespace="term_source_terms_list")
 async def retrieve_source_terms(
@@ -720,6 +770,8 @@ async def retrieve_source_terms(
         staff_user_only,
     ],
     description="Update a term source by its UID",
+    response_model=response.DataSchema[schemas.TermSourceSchema],
+    status_code=200,
 )
 async def update_term_source(
     session: AsyncDBSession,
@@ -757,19 +809,27 @@ async def update_term_source(
         staff_user_only,
     ],
     description="Delete a term source by its UID",
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def delete_term_source(
     session: AsyncDBSession,
     term_source_uid: TermSourceUID,
 ):
-    term_source = await crud.retrieve_term_source_by_uid(session, uid=term_source_uid)
-    if not term_source:
+    async with capture.capture(
+        OperationalError,
+        code=409,
+        content="A conflict occurred while attempting to delete term source",
+    ):
+        deleted_term_source = await crud.delete_term_source_by_uid(
+            session,
+            uid=term_source_uid,
+        )
+    if not deleted_term_source:
         return response.notfound("Term source matching the given query does not exist")
 
-    term_source.is_deleted = True
-    session.add(term_source)
     await session.commit()
-    return response.success(f"{term_source.name} has been deleted")
+    return response.success(f"{deleted_term_source.name} has been deleted")
 
 
 @router.get(
@@ -784,6 +844,8 @@ async def delete_term_source(
         authentication_required,
     ],
     description="Retrieve the search history of the authenticated user/account",
+    response_model=PaginatedResponse[schemas.SearchRecordSchema],  # type: ignore
+    status_code=200,
 )
 async def retrieve_account_search_history(
     request: fastapi.Request,
@@ -850,6 +912,8 @@ async def retrieve_account_search_history(
         authentication_required,
     ],
     description="Delete the search history of the authenticated user/account",
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def delete_account_search_history(
     session: AsyncDBSession,
@@ -884,7 +948,10 @@ async def delete_account_search_history(
         session,
         account=user,
         **params,
+        deleted_by_id=user.id,
     )
+    if deleted_records_count == 0:
+        return response.notfound("No search records matching the given query exist")
 
     await session.commit()
     return response.success(f"{deleted_records_count} search records have been deleted")
@@ -902,9 +969,11 @@ async def delete_account_search_history(
         authentication_required,
     ],
     description="Retrieve search metrics of the authenticated user/account",
+    response_model=response.DataSchema[schemas.AccountSearchMetricsSchema],
+    status_code=200,
 )
 async def account_search_metrics(
-    request: fastapi.Request,
+    # request: fastapi.Request,
     session: AsyncDBSession,
     account: ActiveUser[Account],
     timestamp_gte: typing.Annotated[
@@ -942,6 +1011,8 @@ async def account_search_metrics(
         internal_api_clients_only,
         permissions_required("search_records::*::list"),
     ],
+    response_model=response.DataSchema[schemas.GlobalSearchMetricsSchema],
+    status_code=200,
 )
 async def global_search_metrics(
     session: AsyncDBSession,

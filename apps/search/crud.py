@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 import typing
 import re
 import datetime
+import uuid
 import sqlalchemy as sa
 from sqlalchemy.orm import selectinload, joinedload
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,31 +22,26 @@ from .models import (
 from .schemas import AccountSearchMetricsSchema, GlobalSearchMetricsSchema
 
 
-def _clean_strings(strings: typing.Optional[typing.Iterable[str]]) -> typing.List[str]:
-    """Clean up a list of strings by stripping and removing empty values."""
-    if not strings:
-        return []
-    return [s.strip().lower() for s in strings if s.strip()]
-
-
-async def create_term(session: AsyncSession, **create_params) -> Term:
+async def create_term(session: AsyncSession, **create_kwargs) -> Term:
     """
     Create a term in the glossary.
 
     :param session: The database session
-    :param create_params: The parameters to create the term with
+    :param create_kwargs: The parameters to create the term with
     :return: The created term
     """
-    term = Term(**create_params)
+    term = Term(**create_kwargs)
     session.add(term)
     return term
 
 
 async def retrieve_term_by_uid(
-    session: AsyncSession, uid: str
+    session: AsyncSession,
+    uid: str,
+    for_update: bool = False,
 ) -> typing.Optional[Term]:
     """Retrieve a term by its UID."""
-    result = await session.execute(
+    query = (
         sa.select(Term)
         .where(
             Term.uid == uid,
@@ -57,7 +53,38 @@ async def retrieve_term_by_uid(
             joinedload(Term.source.and_(~TermSource.is_deleted)),
         )
     )
+    if for_update:
+        query = query.with_for_update(
+            of=Term.__table__,  # type: ignore
+            nowait=True,
+            read=True,
+        )
+    result = await session.execute(query)
     return result.scalar()
+
+
+async def delete_term_by_uid(
+    session: AsyncSession,
+    uid: str,
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
+) -> typing.Optional[Term]:
+    """
+    Delete a term by its UID.
+
+    :param session: The database session
+    :param uid: The UID of the term to delete
+    :param deleted_by_id: The ID of the user who deleted the term
+    :return: The deleted term if found, None otherwise
+    """
+    term = await retrieve_term_by_uid(session, uid, for_update=True)
+    if not term:
+        return
+
+    term.is_deleted = True
+    term.deleted_by_id = deleted_by_id
+    term.deleted_at = timezone.now()
+    session.add(term)
+    return term
 
 
 async def retrieve_terms_by_name_or_uid(
@@ -139,29 +166,91 @@ async def retrieve_topics(
 
 
 async def retrieve_topic_by_uid(
-    session: AsyncSession, uid: str
+    session: AsyncSession,
+    uid: str,
+    for_update: bool = False,
 ) -> typing.Optional[Topic]:
     """Retrieve a topic by its UID."""
-    result = await session.execute(
-        sa.select(Topic).where(
-            Topic.uid == uid,
-            ~Topic.is_deleted,
-        )
+    query = sa.select(Topic).where(
+        Topic.uid == uid,
+        ~Topic.is_deleted,
     )
+    if for_update:
+        query = query.with_for_update(
+            of=Topic.__table__,  # type: ignore
+            nowait=True,
+            read=True,
+        )
+    result = await session.execute(query)
     return result.scalar()
+
+
+async def delete_topic_by_uid(
+    session: AsyncSession,
+    uid: str,
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
+) -> typing.Optional[Topic]:
+    """
+    Delete a topic by its UID.
+
+    :param session: The database session
+    :param uid: The UID of the topic to delete
+    :param deleted_by_id: The ID of the user who deleted the topic
+    :return: The deleted topic if found, None otherwise
+    """
+    topic = await retrieve_topic_by_uid(session, uid, for_update=True)
+    if not topic:
+        return
+
+    topic.is_deleted = True
+    topic.deleted_by_id = deleted_by_id
+    topic.deleted_at = timezone.now()
+    session.add(topic)
+    return topic
 
 
 async def retrieve_term_source_by_uid(
-    session: AsyncSession, uid: str
+    session: AsyncSession,
+    uid: str,
+    for_update: bool = False,
 ) -> typing.Optional[TermSource]:
     """Retrieve a term source by its UID."""
-    result = await session.execute(
-        sa.select(TermSource).where(
-            TermSource.uid == uid,
-            ~TermSource.is_deleted,
-        )
+    query = sa.select(TermSource).where(
+        TermSource.uid == uid,
+        ~TermSource.is_deleted,
     )
+    if for_update:
+        query = query.with_for_update(
+            of=TermSource.__table__,  # type: ignore
+            nowait=True,
+            read=True,
+        )
+    result = await session.execute(query)
     return result.scalar()
+
+
+async def delete_term_source_by_uid(
+    session: AsyncSession,
+    uid: str,
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
+) -> typing.Optional[TermSource]:
+    """
+    Delete a term source by its UID.
+
+    :param session: The database session
+    :param uid: The UID of the term source to delete
+    :param deleted_by_id: The ID of the user who deleted the term source
+    :return: The deleted term source if found, None otherwise
+    """
+    term_source = await retrieve_term_source_by_uid(session, uid, for_update=True)
+    if not term_source:
+        return
+
+    term_source.is_deleted = True
+    term_source.deleted_by_id = deleted_by_id
+    term_source.deleted_at = timezone.now()
+    session.add(term_source)
+    return term_source
 
 
 async def retrieve_term_source_by_name_or_uid(
@@ -659,6 +748,7 @@ async def delete_account_search_history(
     client: typing.Optional[APIClient] = None,
     timestamp_gte: typing.Optional[datetime.datetime] = None,
     timestamp_lte: typing.Optional[datetime.datetime] = None,
+    deleted_by_id: typing.Optional[uuid.UUID] = None,
 ) -> int:
     """
     Delete the search history of an account.
@@ -670,6 +760,7 @@ async def delete_account_search_history(
     :param client: Only delete search records made by the given API client
     :param timestamp_gte: Only delete search records that were created after this timestamp
     :param timestamp_lte: Only delete search records that were created before this timestamp
+    :param deleted_by_id: The ID of the user who deleted the search records
     :return: The number of search records that were deleted
     """
     query_filters = [
@@ -699,7 +790,11 @@ async def delete_account_search_history(
             ~SearchRecord.is_deleted,
             *query_filters,
         )
-        .values(is_deleted=True)
+        .values(
+            is_deleted=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        )
         .returning(SearchRecord.id)
     )
     return len(result.scalars().all())

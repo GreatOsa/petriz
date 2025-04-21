@@ -1,4 +1,5 @@
 import fastapi
+import typing
 from fastapi.responses import ORJSONResponse
 
 from helpers.fastapi.routing import path
@@ -9,16 +10,15 @@ from .dependencies import authorization, throttling
 
 api_router = fastapi.APIRouter(
     responses={
-        200: {"model": response.shortcuts.Schema},
-        201: {"model": response.shortcuts.Schema},
-        400: {"model": response.shortcuts.Schema},
-        401: {"model": response.shortcuts.Schema},
-        403: {"model": response.shortcuts.Schema},
-        404: {"model": response.shortcuts.Schema},
-        409: {"model": response.shortcuts.Schema},
-        417: {"model": response.shortcuts.Schema},
-        429: {"model": response.shortcuts.Schema},
-        500: {"model": response.shortcuts.Schema},
+        400: {"model": response.ErrorSchema[None]},
+        401: {"model": response.ErrorSchema[None]},
+        403: {"model": response.ErrorSchema[None]},
+        422: {"model": response.ErrorSchema[typing.Any]},
+        404: {"model": response.ErrorSchema[None]},
+        409: {"model": response.ErrorSchema[None]},
+        417: {"model": response.ErrorSchema[None]},
+        429: {"model": response.ErrorSchema[None]},
+        500: {"model": response.ErrorSchema[None]},
     },
     default_response_class=ORJSONResponse,
 )
@@ -36,6 +36,7 @@ v1_router = fastapi.APIRouter(
     dependencies=[
         *throttling.ANONYMOUS_CLIENT_THROTTLES,
     ],
+    tags=["api_specifics"],
 )
 async def health_check():
     return response.success("Server is running 🚀🚨🌐")

@@ -68,6 +68,9 @@ async def check_authentication_credentials(
     :param session: The database session.
     :return: True if the authentication credentials are valid, False otherwise.
     """
+    if not session:
+        raise ValueError("Database session is required for authentication check")
+    
     client = getattr(credentials.connection.state, "client", None)
     if not isinstance(client, APIClient):
         return False
@@ -78,12 +81,7 @@ async def check_authentication_credentials(
     else:
         if not credentials.token:
             return False
-
-        if session:
-            user = await get_user_from_auth_token(credentials.token, session)
-        else:
-            async with get_async_session() as session:
-                user = await get_user_from_auth_token(credentials.token, session)
+        user = await get_user_from_auth_token(credentials.token, session)
         if not user:
             return False
 

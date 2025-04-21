@@ -2,6 +2,7 @@ import typing
 import fastapi
 import pydantic
 import datetime
+from typing_extensions import Doc
 
 from helpers.fastapi.requests.query import (
     QueryParamNotSet,
@@ -10,11 +11,14 @@ from helpers.fastapi.requests.query import (
     ordering_query_parser_factory,
     timestamp_query_parser,
 )
+from helpers.generics.pydantic import BoolLike
+
 
 from .models import (
     Question,
     Quiz,
     QuestionDifficulty as QuestionDifficultyEnum,
+    QuizAttempt,
     QuizDifficulty as QuizDifficultyEnum,
 )
 
@@ -162,7 +166,7 @@ async def parse_quiz_duration_lte(
 
 async def parse_is_public(
     is_public: typing.Annotated[
-        typing.Optional[bool],
+        typing.Optional[BoolLike],
         fastapi.Query(description="Should only public quizzes be returned?"),
     ] = None,
 ) -> typing.Union[bool, QueryParamNotSet]:
@@ -174,7 +178,7 @@ async def parse_is_public(
 
 async def parse_private_only(
     private_only: typing.Annotated[
-        typing.Optional[bool],
+        typing.Optional[BoolLike],
         fastapi.Query(
             description="Should only quizzes created by the authenticated user be returned?"
         ),
@@ -293,12 +297,30 @@ QuizUIDs: typing.TypeAlias = typing.Annotated[
 ]
 """Annotated type for a quiz UIDs query parameter"""
 
+Version: typing.TypeAlias = typing.Annotated[
+    typing.Optional[int],
+    fastapi.Query(
+        ge=0,
+        le=100,
+    ),
+]
+
+QuizVersion: typing.TypeAlias = typing.Annotated[
+    Version,
+    Doc("Quiz version Leave blank for latest."),
+]
+QuestionVersion: typing.TypeAlias = typing.Annotated[
+    Version, Doc("Quiz version. Leave blank for latest.")
+]
+
 quiz_ordering_query_parser = ordering_query_parser_factory(
     Quiz,
     allowed_columns={
         "title",
-        # "difficulty",
+        "difficulty",
         "duration",
+        "version",
+        "questions_count",
         "is_public",
         "created_at",
         "updated_at",
@@ -308,7 +330,20 @@ quiz_ordering_query_parser = ordering_query_parser_factory(
 question_ordering_query_parser = ordering_query_parser_factory(
     Question,
     allowed_columns={
-        # "difficulty",
+        "difficulty",
+        "version",
+        "created_at",
+        "updated_at",
+    },
+)
+
+quiz_attempt_ordering_query_parser = ordering_query_parser_factory(
+    QuizAttempt,
+    allowed_columns={
+        "duration",
+        "score",
+        "is_submitted",
+        "submitted_at",
         "created_at",
         "updated_at",
     },
@@ -325,3 +360,9 @@ QuestionOrdering: typing.TypeAlias = typing.Annotated[
     fastapi.Depends(question_ordering_query_parser),
 ]
 """Annotated type for a question ordering query parameter"""
+
+QuizAttemptOrdering: typing.TypeAlias = typing.Annotated[
+    typing.Union[OrderingExpressions[QuizAttempt], QueryParamNotSet],
+    fastapi.Depends(quiz_attempt_ordering_query_parser),
+]
+"""Annotated type for a quiz attempt ordering query parameter"""

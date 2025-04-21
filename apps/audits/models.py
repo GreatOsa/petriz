@@ -19,7 +19,7 @@ class ActionStatus(enum.StrEnum):
     ERROR = "error"
 
 
-class AuditLogEntry( # type: ignore
+class AuditLogEntry(  # type: ignore
     mixins.UUID7PrimaryKeyMixin,
     mixins.TimestampMixin,
     models.Model,
@@ -93,7 +93,9 @@ class AuditLogEntry( # type: ignore
         index=True,
         doc="Status of the action. Whether the action was successful or not",
     )
-    data: orm.Mapped[typing.Any] = orm.mapped_column(sa.JSON, nullable=True)
+    extradata: orm.Mapped[typing.Dict[str, typing.Any]] = orm.mapped_column(
+        sa.JSON, nullable=True
+    )
 
     __table_args__ = (
         sa.Index("ix_audit_logentry_created_at", "created_at"),

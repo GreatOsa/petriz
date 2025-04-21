@@ -6,7 +6,7 @@ from sqlalchemy.exc import OperationalError
 from helpers.fastapi.dependencies.connections import AsyncDBSession
 from helpers.fastapi.dependencies.access_control import ActiveUser
 from helpers.fastapi.response import shortcuts as response
-from helpers.fastapi.response.pagination import paginated_data
+from helpers.fastapi.response.pagination import paginated_data, PaginatedResponse
 from helpers.fastapi.exceptions import capture
 from helpers.fastapi.utils import timezone
 from helpers.fastapi.requests.query import Offset, Limit, clean_params
@@ -14,9 +14,9 @@ from api.dependencies.authorization import (
     internal_api_clients_only,
     permissions_required,
 )
-from api.dependencies.auditing import event
+from helpers.fastapi.auditing.dependencies import event
 from api.dependencies.authentication import authentication_required
-from apps.clients.models import ClientType
+from apps.clients.models import ClientType, generate_api_key_secret
 from apps.accounts.models import Account
 from . import schemas, crud
 from .query import APIClientOrdering
@@ -52,6 +52,8 @@ router = fastapi.APIRouter(
         ),
         permissions_required("api_clients::*::create"),
     ],
+    response_model=response.DataSchema[schemas.APIClientSchema],
+    status_code=201,
 )
 async def create_client(
     data: schemas.APIClientCreateSchema,
@@ -61,7 +63,7 @@ async def create_client(
     is_user_client = data.client_type == ClientType.USER
     if is_user_client:
         can_create_more_clients = await crud.check_account_can_create_more_clients(
-            session, user
+            session, account_id=user.id
         )
         if not can_create_more_clients:
             return response.bad_request("Maximum number of API clients reached!")
@@ -76,20 +78,20 @@ async def create_client(
         if is_user_client:
             api_client = await crud.create_api_client(
                 session,
-                user=user,
-                created_by=user,
+                account_id=user.id,
+                created_by_id=user.id,
                 **data.model_dump(),
                 permissions=permissions,
             )
         else:
             api_client = await crud.create_api_client(
                 session,
-                created_by=user,
+                created_by_id=user.id,
                 **data.model_dump(),
                 permissions=permissions,
             )
         await session.flush()
-        await crud.create_api_key(session, client=api_client)
+        await crud.create_api_key(session, client_id=api_client.id)
 
     await session.commit()
     await session.refresh(api_client, attribute_names=["api_key"])
@@ -110,6 +112,8 @@ async def create_client(
         ),
         permissions_required("api_clients::*::list"),
     ],
+    response_model=PaginatedResponse[schemas.APIClientSchema],  # type: ignore
+    status_code=200,
 )
 async def retrieve_clients(
     request: fastapi.Request,
@@ -162,6 +166,8 @@ async def retrieve_clients(
         ),
         permissions_required("api_clients::*::view"),
     ],
+    response_model=response.DataSchema[schemas.APIClientSchema],
+    status_code=200,
 )
 async def retrieve_client(
     session: AsyncDBSession,
@@ -172,6 +178,7 @@ async def retrieve_client(
     # If the user is not an admin, they can only view their own clients
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
@@ -194,6 +201,8 @@ async def retrieve_client(
         ),
         permissions_required("api_clients::*::update"),
     ],
+    response_model=response.DataSchema[schemas.APIClientSchema],
+    status_code=200,
 )
 async def update_client(
     data: schemas.APIClientUpdateSchema,
@@ -204,12 +213,15 @@ async def update_client(
     filters = {"uid": client_uid}
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
 
     async with capture.capture(
-        OperationalError, code=409, content="Can not update client due to conflict"
+        OperationalError,
+        code=409,
+        content="Can not update client due to conflict",
     ):
         api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
     if not api_client:
@@ -245,24 +257,27 @@ async def update_client(
         ),
         permissions_required("api_clients::*::delete"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def bulk_delete_clients(
     data: schemas.APIClientBulkDeleteSchema,
     session: AsyncDBSession,
     user: ActiveUser[Account],
 ):
-    filters = {"uids": data.client_uids}
+    filters = {
+        "uids": data.client_uids,
+        "deleted_by_id": user.id,
+    }
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
-    api_clients = await crud.retrieve_api_clients_by_uid(session, **filters)
+    api_clients = await crud.bulk_delete_api_clients_by_uid(session, **filters)
     if not api_clients:
         return response.notfound("Clients matching the given query do not exist")
-
-    for api_client in api_clients:
-        await crud.delete_api_client(session, api_client)
 
     await session.commit()
     return response.success(
@@ -282,6 +297,8 @@ async def bulk_delete_clients(
         ),
         permissions_required("api_clients::*::delete"),
     ],
+    response_model=response.DataSchema[None],
+    status_code=200,
 )
 async def delete_client(
     session: AsyncDBSession,
@@ -291,18 +308,20 @@ async def delete_client(
     filters = {"uid": client_uid}
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
 
     async with capture.capture(
-        OperationalError, code=409, content="Can not delete client due to conflict"
+        OperationalError,
+        code=409,
+        content="Can not delete client due to conflict",
     ):
-        api_client = await crud.retrieve_api_client(session, for_update=True, **filters)
-    if not api_client:
+        deleted_client = await crud.delete_api_client(session, **filters)
+    if not deleted_client:
         return response.notfound("Client matching the given query does not exist")
 
-    await crud.delete_api_client(session, api_client)
     await session.commit()
     return response.success("API client deleted successfully!")
 
@@ -319,6 +338,8 @@ async def delete_client(
         ),
         permissions_required("api_keys::*::update"),
     ],
+    response_model=response.DataSchema[schemas.APIKeySchema],
+    status_code=200,
 )
 async def refresh_client_api_secret(
     session: AsyncDBSession,
@@ -328,6 +349,7 @@ async def refresh_client_api_secret(
     filters = {"uid": client_uid}
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
@@ -339,7 +361,9 @@ async def refresh_client_api_secret(
     if not api_client:
         return response.notfound("Client matching the given query does not exist")
 
-    api_key = await crud.refresh_api_key_secret(session, api_client.api_key)
+    api_key = api_client.api_key
+    api_key.secret = generate_api_key_secret()
+    session.add(api_key)
     await session.commit()
     return response.success(
         "API secret refreshed successfully! Make sure to save it as this invalidates the old secret.",
@@ -359,6 +383,8 @@ async def refresh_client_api_secret(
         ),
         permissions_required("api_clients::*::permissions_update"),
     ],
+    response_model=response.DataSchema[typing.List[PermissionSchema]],
+    status_code=200,
 )
 async def update_client_permissions(
     session: AsyncDBSession,
@@ -369,6 +395,7 @@ async def update_client_permissions(
     filters: typing.Dict[str, typing.Any] = {"uid": client_uid}
     if not user.is_admin:
         filters = {
+            **filters,
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
