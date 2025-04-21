@@ -110,8 +110,8 @@ AUTH_USER_MODEL = "accounts.Account"
 
 MIDDLEWARE = [
     # "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
-    "helpers.fastapi.middlewares.core.RequestProcessTimeMiddleware",
-    "helpers.fastapi.sqlalchemy.middlewares.AsyncSessionMiddleware",
+    "helpers.fastapi.middleware.core.RequestProcessTimeMiddleware",
+    "helpers.fastapi.sqlalchemy.middleware.AsyncSessionMiddleware",
     (
         "helpers.fastapi.auditing.middleware.ConnectionEventLogMiddleware",
         {
