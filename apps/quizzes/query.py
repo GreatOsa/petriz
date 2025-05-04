@@ -96,7 +96,9 @@ async def parse_quiz_difficulty(
                 status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Invalid difficulty level: {level}. Allowed levels are: {', '.join(quiz_difficulty_levels)}",
             )
-    return list(set(difficulty_levels)) or ParamNotSet
+    if not difficulty_levels:
+        return ParamNotSet
+    return list(set(difficulty_levels))
 
 
 question_difficulty_levels = [
@@ -129,7 +131,9 @@ async def parse_question_difficulty(
                 status_code=fastapi.status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=f"Invalid difficulty level: {level}. Allowed levels are: {', '.join(question_difficulty_levels)}",
             )
-    return list(set(difficulty_levels)) or ParamNotSet
+    if not difficulty_levels:
+        return ParamNotSet
+    return list(set(difficulty_levels))
 
 
 async def parse_quiz_duration_gte(
@@ -145,7 +149,7 @@ async def parse_quiz_duration_gte(
     """Parse quiz duration query parameter"""
     if duration_gte is None:
         return ParamNotSet
-    return duration_gte or ParamNotSet
+    return duration_gte
 
 
 async def parse_quiz_duration_lte(
@@ -161,7 +165,7 @@ async def parse_quiz_duration_lte(
     """Parse quiz duration query parameter"""
     if duration_lte is None:
         return ParamNotSet
-    return duration_lte or ParamNotSet
+    return duration_lte
 
 
 async def parse_is_public(
@@ -173,7 +177,7 @@ async def parse_is_public(
     """Parse is_public query parameter"""
     if is_public is None:
         return ParamNotSet
-    return is_public or ParamNotSet
+    return is_public
 
 
 async def parse_private_only(
@@ -187,7 +191,7 @@ async def parse_private_only(
     """Parse private_only query parameter"""
     if private_only is None:
         return ParamNotSet
-    return private_only or ParamNotSet
+    return private_only
 
 
 def parse_quiz_uids(

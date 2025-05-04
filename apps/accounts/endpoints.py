@@ -687,23 +687,18 @@ async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Acc
     status_code=200,
 )
 async def delete_account(user: ActiveUser[Account], session: AsyncDBSession):
-    async with capture.capture(
-        OperationalError,
-        code=409,
-        content="There was a conflict while attempting to delete account",
-    ):
-        deleted_account = await crud.delete_account(
-            session,
-            account_id=user.id,
-            deleted_by_id=user.id,
-        )
-    if not deleted_account:
+    deleted = await crud.delete_account(
+        session,
+        account_id=user.id,
+        deleted_by_id=user.id,
+    )
+    if not deleted:
         return response.conflict("This account has already been deleted")
 
     # Invalidate all authentications for the account
     await auth_tokens.delete_auth_tokens(
         session=session,
-        account_id=deleted_account.id,
+        account_id=user.id,
     )
     await session.commit()
     return response.success("Account deleted successfully!")

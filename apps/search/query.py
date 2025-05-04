@@ -1,6 +1,5 @@
 import typing
 import fastapi
-import pydantic
 import datetime
 
 from helpers.fastapi.requests.query import (
@@ -10,6 +9,7 @@ from helpers.fastapi.requests.query import (
     ordering_query_parser_factory,
     timestamp_query_parser,
 )
+from helpers.generics.pydantic import BoolLike
 
 from .models import Term
 
@@ -94,7 +94,7 @@ def parse_startswith_query(
 
 def parse_verified_query(
     verified: typing.Annotated[
-        typing.Optional[str],
+        typing.Optional[BoolLike],
         fastapi.Query(
             description="Whether to only include terminologies that have been vetted and verified to be correct",
         ),
@@ -102,7 +102,7 @@ def parse_verified_query(
 ) -> typing.Union[bool, QueryParamNotSet]:
     if verified is None:
         return ParamNotSet
-    return pydantic.TypeAdapter(bool).validate_python(verified, strict=False)
+    return verified
 
 
 Topics: typing.TypeAlias = typing.Annotated[

@@ -1,6 +1,6 @@
 **/__pycache__/
-/test_server.py
-/.env
-/.env.development
-/.env.staging
-venv/
+**/.env
+**/.env.development
+**/.env.staging
+**/.venv/
+**/.ruff_cache/

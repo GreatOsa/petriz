@@ -1,5 +1,4 @@
 from starlette.requests import HTTPConnection
-from starlette.responses import Response
 
 from helpers.fastapi.exceptions.capture import exception_captured_handler, ExceptionCaptor
 from helpers.fastapi.response.format import json_httpresponse_formatter

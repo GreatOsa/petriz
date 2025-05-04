@@ -1,46 +1,42 @@
-[tool.poetry]
+[project]
 name = "petriz"
 version = "0.1.0"
 description = ""
-authors = ["ti-oluwa <105179638+ti-oluwa@users.noreply.github.com>"]
+authors = [{ name = "ti-oluwa", email = "105179638+ti-oluwa@users.noreply.github.com" }]
+requires-python = "~=3.10"
 readme = "README.md"
+dependencies = [
+    "uvicorn>=0.30.1,<0.31",
+    "fastapi>=0.111.0,<0.112",
+    "pydantic>=2.7.4,<3",
+    "ruff>=0.5.0,<0.6",
+    "sqlalchemy>=2.0.31,<3",
+    "psycopg2-binary>=2.9.9,<3",
+    "sqlalchemy-utils>=0.41.2,<0.42",
+    "alembic>=1.13.2,<2",
+    "inflection>=0.5.1,<0.6",
+    "asyncpg>=0.29.0,<0.30",
+    "asgiref>=3.8.1,<4",
+    "passlib>=1.7.4,<2",
+    "fastapi-mail>=1.4.1,<2",
+    "argon2-cffi>=23.1.0,<24",
+    "aiofiles>=24.1.0,<25",
+    "faker>=33.1.0,<34",
+    "redis>=5.2.1,<6",
+    "cachetools>=5.5.0,<6",
+    "uuid7>=0.1.0,<0.2",
+    "ulid~=1.1",
+    "fastapi-cache2>=0.2.2,<0.3",
+    "orjson>=3.10.15,<4",
+    "click>=8.1.8,<9",
+    "httptools>=0.6.4,<0.7",
+    "gunicorn>=23.0.0,<24",
+    "rich>=13.9.4",
+    "urllib3>=2.4.0",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-uvicorn = "^0.30.1"
-fastapi = "^0.111.0"
-pydantic = "^2.7.4"
-ruff = "^0.5.0"
-sqlalchemy = "^2.0.31"
-psycopg2-binary = "^2.9.9"
-sqlalchemy-utils = "^0.41.2"
-alembic = "^1.13.2"
-inflection = "^0.5.1"
-asyncpg = "^0.29.0"
-asgiref = "^3.8.1"
-passlib = "^1.7.4"
-fastapi-mail = "^1.4.1"
-argon2-cffi = "^23.1.0"
-aiofiles = "^24.1.0"
-faker = "^33.1.0"
-rich = "^13.9.4"
-slb-glossary = "^0.0.1"
-redis = "^5.2.1"
-cachetools = "^5.5.0"
-uuid7 = "^0.1.0"
-ulid = "^1.1"
-fastapi-cache2 = "^0.2.2"
-orjson = "^3.10.15"
-click = "^8.1.8"
-httptools = "^0.6.4"
-langchain = "^0.3.21"
-gunicorn = "^23.0.0"
-
-
-[tool.poetry.group.dev.dependencies]
-flake8 = "^7.1.0"
-pre-commit = "^3.7.1"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[dependency-groups]
+dev = [
+    "flake8>=7.1.0,<8",
+    "pre-commit>=3.7.1,<4",
+]

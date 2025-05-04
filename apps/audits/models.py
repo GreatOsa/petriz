@@ -14,7 +14,7 @@ def generate_audit_log_uid() -> str:
     return generate_uid(prefix="petriz_audit_logentry_")
 
 
-class ActionStatus(enum.StrEnum):
+class ActionStatus(enum.Enum):
     SUCCESS = "success"
     ERROR = "error"
 

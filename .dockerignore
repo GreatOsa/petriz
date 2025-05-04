@@ -1,3 +1,6 @@
-/.python-version
-/test_server.py
 **/__pycache__
+**/*.pyc
+**/*.pyo
+**/*.pyd
+**/.venv
+**/.ruff_cache

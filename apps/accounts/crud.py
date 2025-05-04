@@ -61,24 +61,27 @@ async def delete_account(
     session: AsyncSession,
     account_id: uuid.UUID,
     deleted_by_id: typing.Optional[uuid.UUID] = None,
-) -> typing.Optional[Account]:
-    """Soft delete an account by ID."""
+) -> bool:
+    """
+    Soft delete an account by ID.
+
+    :param session: The database session.
+    :param account_id: The ID of the account to delete.
+    :param deleted_by_id: The ID of the user who deleted the account (optional).
+    :return: True if the account was deleted, False otherwise.
+    """
     result = await session.execute(
-        sa.select(Account).where(
+        sa.update(Account).where(
             Account.id == account_id,
             ~Account.is_deleted,
-        ).with_for_update(nowait=True)
+        ).values(
+            is_deleted=True,
+            is_active=False,
+            deleted_at=timezone.now(),
+            deleted_by_id=deleted_by_id 
+        ).returning(sa.func.count(Account.id))
     )
-    account = result.scalar()
-    if not account:
-        return
-
-    account.is_deleted = True
-    account.is_active = False
-    account.deleted_at = timezone.now()
-    account.deleted_by_id = deleted_by_id
-    session.add(account)
-    return account
+    return result.scalar_one() > 0
 
 
 __all__ = [

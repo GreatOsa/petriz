@@ -346,11 +346,15 @@ async def delete_quiz_question(
     session: AsyncDBSession,
     user: ActiveUser[Account],
 ):
-    deleted = await crud.delete_question_by_uid(
-        session, uid=question_uid, deleted_by_id=user.id
+    deleted_questions = await crud.delete_question_by_uid(
+        session,
+        uid=question_uid,
+        deleted_by_id=user.id,
     )
-    if not deleted:
+    if not deleted_questions:
         return response.notfound("Quiz question not found")
+
+    await session.commit()
     return response.success("Quiz question deleted")
 
 
@@ -429,7 +433,7 @@ async def create_quiz(
     response_model=PaginatedResponse[schemas.BaseQuizSchema],  # type: ignore
     status_code=200,
 )
-@cache(namespace="quizzes")
+# @cache(namespace="quizzes")
 async def retrieve_quizzes(
     request: fastapi.Request,
     session: AsyncDBSession,
@@ -514,7 +518,9 @@ async def retrieve_quiz(
         uid=quiz_uid,
         version=version,
     )
-    if not quiz or (not quiz.is_public and quiz.created_by != user):
+    if not quiz or (
+        not quiz.is_public and quiz.created_by != user and user and not user.is_staff
+    ):
         return response.notfound("Quiz not found")
     return response.success(data=schemas.QuizSchema.model_validate(quiz))
 
@@ -705,7 +711,11 @@ async def remove_quiz_questions(
         code=409,
         content="Cannot update quiz due to conflict",
     ):
-        quiz = await crud.retrieve_quiz_by_uid(session, uid=quiz_uid, for_update=True)
+        quiz = await crud.retrieve_quiz_by_uid(
+            session,
+            uid=quiz_uid,
+            for_update=True,
+        )
 
     if not quiz or (quiz.created_by != user and not user.is_staff):
         return response.notfound("Quiz not found")
@@ -878,10 +888,10 @@ async def create_quiz_attempt(
         authentication_required,
     ],
     description="Retrieve quiz attempts",
-    response_model=PaginatedResponse[schemas.QuizAttemptSchema],  # type: ignore
+    response_model=PaginatedResponse[schemas.BaseQuizAttemptSchema],  # type: ignore
     status_code=200,
 )
-@cache(namespace="quiz_attempts", expire=60)
+@cache(namespace="quiz_attempts", expire=10)
 async def retrieve_quiz_attempts(
     request: fastapi.Request,
     quiz_uid: QuizUID,
@@ -906,6 +916,9 @@ async def retrieve_quiz_attempts(
     if not quiz or (not quiz.is_public and not quiz.created_by == user):
         return response.notfound("Quiz not found")
 
+    if quiz_version:
+        filters["quiz_id"] = quiz.id
+    
     filters["quiz_uid"] = quiz.uid
     filters["attempted_by_id"] = user.id
     attempts = await crud.retrieve_quiz_attempts(session, **filters)

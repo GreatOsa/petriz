@@ -1,4 +1,4 @@
-FROM python:3.12.8-alpine3.21
+FROM python:3.12.10-alpine
 
 EXPOSE 8000
 
@@ -6,14 +6,13 @@ ENV PYTHONDONTWRITEBYTECODE=1
 
 ENV PYTHONUNBUFFERED=1
 
-WORKDIR /application
+# Install uv.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-COPY ./poetry.lock ./pyproject.toml /application/
+WORKDIR /app
 
-RUN pip install poetry
+COPY . /app/
 
-RUN poetry install --no-dev
+RUN uv sync --frozen --no-cache
 
-COPY . /application
-
-CMD ["poetry", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "4"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

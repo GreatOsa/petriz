@@ -28,7 +28,7 @@ def generate_permission_uid() -> str:
     return generate_uid(prefix="petriz_permission_")
 
 
-class ClientType(enum.StrEnum):
+class ClientType(enum.Enum):
     INTERNAL = "internal"
     PUBLIC = "public"
     PARTNER = "partner"

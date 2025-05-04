@@ -51,7 +51,7 @@ def request_key_builder_factory(
     :returns: Function that builds a cache key based on request parameters
     """
 
-    async def _key_builder(
+    async def key_builder(
         func: typing.Callable[..., typing.Any],
         namespace: str = default_namespace,
         *,
@@ -92,7 +92,7 @@ def request_key_builder_factory(
         key_hash = hashlib.md5(cache_key.encode()).hexdigest()
         return f"{namespace}:{key_hash}"
 
-    return _key_builder
+    return key_builder
 
 
 request_key_builder = request_key_builder_factory(

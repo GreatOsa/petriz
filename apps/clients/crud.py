@@ -9,6 +9,7 @@ from sqlalchemy.orm import joinedload
 
 from helpers.fastapi.requests.query import OrderingExpressions
 from helpers.fastapi.utils import timezone
+from helpers.fastapi.sqlalchemy.utils import build_conditions
 
 from .models import APIClient, ClientType, APIKey
 from apps.accounts.models import Account
@@ -84,9 +85,9 @@ async def retrieve_api_client(
     Retrieve the first API client that matches the given filter from the DB.
     Eagerly load the associated api key and account (if any).
     """
-    query = sa.select(APIClient).filter_by(
-        is_deleted=False,
-        **filters,
+    query = sa.select(APIClient).where(
+        ~APIClient.is_deleted,
+        *build_conditions(filters, APIClient),
     )
     if for_update:
         query = query.with_for_update(nowait=True, read=True)
@@ -120,7 +121,7 @@ async def retrieve_api_clients(
     """
     result = await session.execute(
         sa.select(APIClient)
-        .filter_by(is_deleted=False, **filters)
+        .where(~APIClient.is_deleted, *build_conditions(filters, APIClient))
         .limit(limit)
         .offset(offset)
         .options(joinedload(APIClient.api_key), joinedload(APIClient.account))
@@ -133,12 +134,11 @@ async def retrieve_api_clients_by_uid(
     session: AsyncSession, uids: typing.List[str], **filters
 ):
     result = await session.execute(
-        sa.select(APIClient)
-        .where(
+        sa.select(APIClient).where(
             ~APIClient.is_deleted,
             APIClient.uid.in_(uids),
+            *build_conditions(filters, APIClient),
         )
-        .filter_by(**filters)
     )
     return list(result.scalars().all())
 
@@ -158,21 +158,21 @@ async def delete_api_client(
     :param filters: Additional filters to apply when retrieving the client.
     :return: The deleted API client, or None if no client was found.
     """
-    api_client = await retrieve_api_client(
-        session,
-        uid=uid,
-        for_update=True,
-        **filters,
+    result = await session.execute(
+        sa.update(APIClient)
+        .where(
+            APIClient.uid == uid,
+            ~APIClient.is_deleted,
+            *build_conditions(filters, APIClient),
+        )
+        .values(
+            is_deleted=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        )
+        .returning(APIClient)
     )
-    if not api_client:
-        return
-
-    api_client.is_deleted = True
-    api_client.is_disabled = True
-    api_client.deleted_by_id = deleted_by_id
-    api_client.deleted_at = timezone.now()
-    session.add(api_client)
-    return api_client
+    return result.scalar()
 
 
 async def bulk_delete_api_clients_by_uid(
@@ -180,7 +180,7 @@ async def bulk_delete_api_clients_by_uid(
     uids: typing.Sequence[str],
     deleted_by_id: typing.Optional[uuid.UUID] = None,
     **filters,
-) -> typing.Optional[typing.List[APIClient]]:
+) -> int:
     """
     Soft delete API clients in bulk. This will also disable the clients.
 
@@ -188,22 +188,23 @@ async def bulk_delete_api_clients_by_uid(
     :param uids: The UIDs of the API clients to delete.
     :param deleted_by_id: The ID of the user who deleted the clients.
     :param filters: Additional filters to apply when retrieving the clients.
-    :return: A list of deleted API clients, or None if no clients were found.
+    :return: The number of clients that were deleted.
     """
-    api_clients = await retrieve_api_clients_by_uid(
-        session,
-        uids=uids,
-        **filters,
+    result = await session.execute(
+        sa.update(APIClient)
+        .where(
+            APIClient.uid.in_(uids),
+            ~APIClient.is_deleted,
+            *build_conditions(filters, APIClient),
+        )
+        .values(
+            is_deleted=True,
+            is_disabled=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        ).returning(sa.func.count(APIClient.id))
     )
-    if not api_clients:
-        return
-    for client in api_clients:
-        client.is_deleted = True
-        client.is_disabled = True
-        client.deleted_by_id = deleted_by_id
-        client.deleted_at = timezone.now()
-        session.add(client)
-    return api_clients
+    return result.scalar_one()
 
 
 ############

@@ -167,6 +167,10 @@ class QuizBaseSchema(pydantic.BaseModel):
         default=False,
         description="Is the quiz public",
     )
+    is_latest: pydantic.StrictBool = pydantic.Field(
+        default=False,
+        description="Is this the question the latest version?",
+    )
     metadata: typing.Optional[typing.Dict[pydantic.StrictStr, pydantic.JsonValue]] = (
         pydantic.Field(
             validation_alias=pydantic.AliasChoices(
@@ -220,6 +224,10 @@ class BaseQuizSchema(QuizBaseSchema):
     is_timed: pydantic.StrictBool = pydantic.Field(
         default=False,
         description="Is the quiz time constrained?",
+    )
+    is_latest: pydantic.StrictBool = pydantic.Field(
+        default=False,
+        description="Is this the quiz the latest version?",
     )
     created_at: pydantic.AwareDatetime = pydantic.Field(
         description="Quiz creation datetime",
@@ -390,7 +398,7 @@ class BaseQuizAttemptSchema(QuizAttemptBaseSchema):
         default=False,
         description="Is the quiz attempt time constrained?",
     )
-    time_remaining: typing.Optional[pydantic.PositiveFloat] = pydantic.Field(
+    time_remaining: typing.Optional[float] = pydantic.Field(
         default=None,
         ge=0,
         description="Quiz attempt time remaining in seconds",

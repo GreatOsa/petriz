@@ -1,5 +1,3 @@
 {
-    "python.analysis.typeCheckingMode": "off",
-    "python.defaultInterpreterPath": "./venv/bin/python",
-    "python.terminal.activateEnvironment": true
+    "python.analysis.typeCheckingMode": "off"
 }

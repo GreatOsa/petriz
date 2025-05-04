@@ -10,7 +10,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.accounts.models import Account
 from apps.clients.models import APIClient
 from helpers.fastapi.utils import timezone
-from helpers.fastapi.sqlalchemy.utils import text_to_tsvector, text_to_tsquery
+from helpers.fastapi.sqlalchemy.utils import (
+    text_to_tsvector,
+    text_to_tsquery,
+    build_conditions,
+)
 from .models import (
     Term,
     SearchRecord,
@@ -76,19 +80,26 @@ async def delete_term_by_uid(
     :param deleted_by_id: The ID of the user who deleted the term
     :return: The deleted term if found, None otherwise
     """
-    term = await retrieve_term_by_uid(session, uid, for_update=True)
-    if not term:
-        return
-
-    term.is_deleted = True
-    term.deleted_by_id = deleted_by_id
-    term.deleted_at = timezone.now()
-    session.add(term)
+    result = await session.execute(
+        sa.update(Term)
+        .where(
+            Term.uid == uid,
+            ~Term.is_deleted,
+        )
+        .values(
+            is_deleted=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        )
+        .returning(Term)
+    )
+    term = result.scalar()
     return term
 
 
 async def retrieve_terms_by_name_or_uid(
-    session: AsyncSession, names_or_uids: typing.Iterable[str]
+    session: AsyncSession,
+    names_or_uids: typing.Iterable[str],
 ) -> typing.List[Term]:
     """
     Retrieve terms by their names or UIDs.
@@ -138,7 +149,9 @@ async def retrieve_topics_by_name_or_uid(
 
 
 async def create_topic(
-    session: AsyncSession, name: str, description: typing.Optional[str] = None
+    session: AsyncSession,
+    name: str,
+    description: typing.Optional[str] = None,
 ) -> Topic:
     """
     Create a topic in the glossary.
@@ -198,14 +211,20 @@ async def delete_topic_by_uid(
     :param deleted_by_id: The ID of the user who deleted the topic
     :return: The deleted topic if found, None otherwise
     """
-    topic = await retrieve_topic_by_uid(session, uid, for_update=True)
-    if not topic:
-        return
-
-    topic.is_deleted = True
-    topic.deleted_by_id = deleted_by_id
-    topic.deleted_at = timezone.now()
-    session.add(topic)
+    result = await session.execute(
+        sa.update(Topic)
+        .where(
+            Topic.uid == uid,
+            ~Topic.is_deleted,
+        )
+        .values(
+            is_deleted=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        )
+        .returning(Topic)
+    )
+    topic = result.scalar()
     return topic
 
 
@@ -242,14 +261,20 @@ async def delete_term_source_by_uid(
     :param deleted_by_id: The ID of the user who deleted the term source
     :return: The deleted term source if found, None otherwise
     """
-    term_source = await retrieve_term_source_by_uid(session, uid, for_update=True)
-    if not term_source:
-        return
-
-    term_source.is_deleted = True
-    term_source.deleted_by_id = deleted_by_id
-    term_source.deleted_at = timezone.now()
-    session.add(term_source)
+    result = await session.execute(
+        sa.update(TermSource)
+        .where(
+            TermSource.uid == uid,
+            ~TermSource.is_deleted,
+        )
+        .values(
+            is_deleted=True,
+            deleted_by_id=deleted_by_id,
+            deleted_at=timezone.now(),
+        )
+        .returning(TermSource)
+    )
+    term_source = result.scalar()
     return term_source
 
 
@@ -328,11 +353,11 @@ async def retrieve_term_sources(
     return list(result.scalars().all())
 
 
-async def retrieve_term_source_terms(
+async def retrieve_source_terms(
     session: AsyncSession,
-    term_source: TermSource,
-    topics: typing.Optional[typing.List[Topic]] = None,
-    startswith: typing.Optional[typing.List[str]] = None,
+    source_id: int,
+    topic_ids: typing.Optional[typing.Iterable[int]] = None,
+    startswith: typing.Optional[typing.Iterable[str]] = None,
     verified: typing.Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
@@ -342,16 +367,19 @@ async def retrieve_term_source_terms(
     Retrieve terms from a given term source.
 
     :param session: The database session
-    :param term_source: The term source to retrieve terms for
+    :param source_id: The ID of the term source to retrieve terms for
+    :param topic_ids: The IDs of the topics to filter terms by
+    :param startswith: Only return terms that start with the given letters
     :param verified: Only return verified terms if True, unverified terms if False
     :param limit: The maximum number of terms to return
     :param offset: The number of terms to skip
+    :param kwargs: Additional filters to apply to the query
     :return: A list of terms from the given term source
     """
     return await search_terms(
         session,
-        source=term_source,
-        topics=topics,
+        source_id=source_id,
+        topic_ids=topic_ids,
         startswith=startswith,
         verified=verified,
         limit=limit,
@@ -362,20 +390,20 @@ async def retrieve_term_source_terms(
 
 async def create_term_view(
     session: AsyncSession,
-    term: Term,
-    viewed_by: typing.Optional[Account],
+    term_id: int,
+    viewed_by_id: typing.Optional[uuid.UUID],
 ) -> TermView:
     """
     Create a term view record in the database.
 
-    :param term: The term that was viewed
-    :param viewed_by: The user/account that viewed the term
+    :param term_id: The ID of the term that was viewed
+    :param viewed_by_id: The user/account ID that viewed the term
     :param session: The database session
     :return: The created term view record
     """
     term_view = TermView(
-        term_id=term.id,  # type: ignore
-        viewed_by_id=viewed_by.id if viewed_by else None,  # type: ignore
+        term_id=term_id,  # type: ignore
+        viewed_by_id=viewed_by_id,  # type: ignore
     )
     session.add(term_view)
     return term_view
@@ -384,21 +412,21 @@ async def create_term_view(
 async def check_term_exists_for_source(
     session: AsyncSession,
     term_name: str,
-    term_source: TermSource,
+    source_id: int,
 ) -> bool:
     """
     Check if a term with the given name exists for the given source.
 
     :param session: The database session
     :param term_name: The name of the term to check for
-    :param term_source: The source to check for the term in
+    :param source_id: The ID of the source to check for the term in
     :return: True if the term exists, False otherwise
     """
     result = await session.execute(
         sa.select(
             sa.exists().where(
                 Term.name.ilike(term_name),
-                Term.source_id == term_source.id,
+                Term.source_id == source_id,
             )
         )
     )
@@ -407,10 +435,10 @@ async def check_term_exists_for_source(
 
 async def retrieve_topic_terms(
     session: AsyncSession,
-    topic: Topic,
+    topic_id: int,
     verified: typing.Optional[bool] = None,
     startswith: typing.Optional[typing.List[str]] = None,
-    source: typing.Optional[TermSource] = None,
+    source_id: typing.Optional[int] = None,
     limit: int = 100,
     offset: int = 0,
     **kwargs,
@@ -419,21 +447,21 @@ async def retrieve_topic_terms(
     Retrieve terms that are tagged with the given topic.
 
     :param session: The database session
-    :param topic: The topic to retrieve terms for
+    :param topic: The ID of the topic to retrieve terms for
     :param verified: Only return verified terms if True, unverified terms if False
     :param startswith: Only return terms that start with the given letters
-    :param source: Only return terms from the given source
+    :param source_id: Only return terms from the source with the given ID
     :param limit: The maximum number of terms to return
     :param offset: The number of terms to skip
     :return: A list of terms that match the given filters
     """
-    kwargs.pop("topics", None)
+    kwargs.pop("topic_ids", None)
     return await search_terms(
         session,
-        topics=[topic],
+        topic_ids=[topic_id],
         verified=verified,
         startswith=startswith,
-        source=source,
+        source_id=source_id,
         limit=limit,
         offset=offset,
         **kwargs,
@@ -520,9 +548,9 @@ async def search_terms(
     session: AsyncSession,
     query: typing.Optional[str] = None,
     *,
-    topics: typing.Optional[typing.Iterable[Topic]] = None,
-    startswith: typing.Optional[typing.List[str]] = None,
-    source: typing.Optional[TermSource] = None,
+    topic_ids: typing.Optional[typing.Iterable[int]] = None,
+    startswith: typing.Optional[typing.Iterable[str]] = None,
+    source_id: typing.Optional[int] = None,
     verified: typing.Optional[bool] = None,
     limit: int = 100,
     offset: int = 0,
@@ -535,9 +563,9 @@ async def search_terms(
 
     :param session: The database session
     :param query: The search query
-    :param topics: Terms that are tagged with the given topics will be returned
+    :param topic_ids: Terms under the topics with the given IDs will be returned
     :param startswith: Terms that start with the given letters will be returned
-    :param source: Terms from the given source will be returned
+    :param source_id: Terms from the source with the given ID will be returned
     :param verified: Only return verified terms if True, unverified terms if False
     :param limit: The maximum number of terms to return
     :param offset: The number of terms to skip
@@ -545,12 +573,12 @@ async def search_terms(
     :param ordering: A list of SQLAlchemy ordering expressions to apply to the query
     :param filters: Additional filters to apply to the query
     """
-    if not (query or topics or filters):
+    if not (query or topic_ids or filters):
         return []
 
     query_filters = [~Term.is_deleted]
-    if topics:
-        query_filters.append(Term.topics.any(Topic.id.in_([t.id for t in topics])))
+    if topic_ids:
+        query_filters.append(Term.topics.any(Topic.id.in_(list(topic_ids))))
 
     if query:
         tsquery = text_to_tsquery(query)
@@ -563,8 +591,8 @@ async def search_terms(
             *ordering,
         )
 
-    if source:
-        query_filters.append(Term.source_id == source.id)
+    if source_id:
+        query_filters.append(Term.source_id == source_id)
 
     if verified is not None:
         query_filters.append(Term.verified == verified)
@@ -581,12 +609,14 @@ async def search_terms(
         query_filters.append(sa.or_(*startletter_filters))
 
     if exclude:
-        query_filters.append(sa.and_(~Term.uid.in_(exclude), ~Term.id.in_(exclude)))
+        query_filters.append(~Term.uid.in_(exclude) & ~Term.id.in_(exclude))
 
     result = await session.execute(
         sa.select(Term)
-        .where(*query_filters)
-        .filter_by(**filters)
+        .where(
+            *query_filters,
+            *build_conditions(filters, Term),
+        )
         .limit(limit)
         .offset(offset)
         .options(
@@ -606,8 +636,8 @@ async def create_search_record(
     session: AsyncSession,
     query: typing.Optional[str] = None,
     *,
-    account: typing.Optional[Account] = None,
-    client: typing.Optional[APIClient] = None,
+    account_id: typing.Optional[uuid.UUID] = None,
+    client_id: typing.Optional[uuid.UUID] = None,
     topics: typing.Optional[typing.Iterable[Topic]] = None,
     metadata: typing.Optional[typing.Dict[str, typing.Any]] = None,
 ) -> SearchRecord:
@@ -616,15 +646,15 @@ async def create_search_record(
 
     :param session: The database session
     :param query: The search query to record
-    :param account: The account that made the search
-    :param client: The API client that was used to make the search
+    :param account_id: The ID of the account that made the search
+    :param client_id: The ID of the API client that was used to make the search
     :param topics: The topics the search was constrained to
     :param metadata: Additional metadata to associate with the search
     :return: The created search record
     """
     search_record = SearchRecord(
-        account_id=account.id if account else None,  # type: ignore
-        client_id=client.id if client else None,  # type: ignore
+        account_id=account_id,  # type: ignore
+        client_id=client_id,  # type: ignore
         query=query,  # type: ignore
         extradata=metadata or {},  # type: ignore
     )
@@ -639,8 +669,8 @@ async def record_search(
     session: AsyncSession,
     query: typing.Optional[str] = None,
     *,
-    account: typing.Optional[Account] = None,
-    client: typing.Optional[APIClient] = None,
+    account_id: typing.Optional[uuid.UUID] = None,
+    client_id: typing.Optional[uuid.UUID] = None,
     topics: typing.Optional[typing.Iterable[Topic]] = None,
     metadata: typing.Optional[typing.Dict[str, typing.Any]] = None,
 ):
@@ -649,8 +679,8 @@ async def record_search(
 
     :param session: The database session
     :param query: The search query to record
-    :param account: The account that made the search
-    :param client: The API client that was used to make the search
+    :param account_id: The ID of the account that made the search
+    :param client_id: The ID of the API client that was used to make the search
     :param topics: The topics the search was constrained to
     :param metadata: Additional metadata to associate with the search
     """
@@ -659,8 +689,8 @@ async def record_search(
         await create_search_record(
             session,
             query=query,
-            account=account,
-            client=client,
+            account_id=account_id,
+            client_id=client_id,
             topics=topics,
             metadata=metadata,
         )
@@ -671,11 +701,11 @@ async def record_search(
 
 async def retrieve_account_search_history(
     session: AsyncSession,
-    account: Account,
+    account_id: uuid.UUID,
     *,
     query: typing.Optional[str] = None,
-    topics: typing.Optional[typing.List[Topic]] = None,
-    client: typing.Optional[APIClient] = None,
+    topic_ids: typing.Optional[typing.Iterable[int]] = None,
+    client_id: typing.Optional[uuid.UUID] = None,
     timestamp_gte: typing.Optional[datetime.datetime] = None,
     timestamp_lte: typing.Optional[datetime.datetime] = None,
     limit: int = 100,
@@ -686,10 +716,10 @@ async def retrieve_account_search_history(
     Retrieve the search history of an account.
 
     :param session: The database session
-    :param account: The account to retrieve the search history for
+    :param account_id: The ID of the account to retrieve the search history for
     :param query: The search query to filter by
-    :param topics: The topics to filter by
-    :param client: Only include search records made by the given API client
+    :param topic_ids: The IDs of topics to filter by
+    :param client_id: Only include search records made by the API client with this given ID
     :param timestamp_gte: Only include search records that were created after this timestamp
     :param timestamp_lte: Only include search records that were created before this timestamp
     :param limit: The maximum number of search records to return
@@ -697,7 +727,7 @@ async def retrieve_account_search_history(
     :return: A sequence of search records that match the given filters
     """
     query_filters = [
-        SearchRecord.account_id == account.id,
+        SearchRecord.account_id == account_id,
     ]
     if query:
         tsquery = text_to_tsquery(query)
@@ -707,13 +737,11 @@ async def retrieve_account_search_history(
             sa.desc(sa.func.ts_rank_cd(SearchRecord.query_tsvector, tsquery)),
             *ordering,
         )
-    if topics:
+    if topic_ids:
+        query_filters.append(SearchRecord.topics.any(Topic.id.in_(list(topic_ids))))
+    if client_id:
         query_filters.append(
-            SearchRecord.topics.any(Topic.id.in_([t.id for t in topics]))
-        )
-    if client:
-        query_filters.append(
-            SearchRecord.client_id == client.id,
+            SearchRecord.client_id == client_id,
         )
 
     if timestamp_gte:
@@ -741,11 +769,11 @@ async def retrieve_account_search_history(
 
 async def delete_account_search_history(
     session: AsyncSession,
-    account: Account,
+    account_id: uuid.UUID,
     *,
     query: typing.Optional[str] = None,
-    topics: typing.Optional[typing.List[Topic]] = None,
-    client: typing.Optional[APIClient] = None,
+    topic_ids: typing.Optional[typing.Iterable[int]] = None,
+    client_id: typing.Optional[uuid.UUID] = None,
     timestamp_gte: typing.Optional[datetime.datetime] = None,
     timestamp_lte: typing.Optional[datetime.datetime] = None,
     deleted_by_id: typing.Optional[uuid.UUID] = None,
@@ -754,29 +782,27 @@ async def delete_account_search_history(
     Delete the search history of an account.
 
     :param session: The database session
-    :param account: The account to delete the search history for
+    :param account_id: The ID of the account to delete the search history for
     :param query: The search query to filter by
-    :param topics: The topics to filter by
-    :param client: Only delete search records made by the given API client
+    :param topic_ids: The IDs of the topics to filter by
+    :param client_id: Only delete search records made by the API client with this given ID`
     :param timestamp_gte: Only delete search records that were created after this timestamp
     :param timestamp_lte: Only delete search records that were created before this timestamp
     :param deleted_by_id: The ID of the user who deleted the search records
     :return: The number of search records that were deleted
     """
     query_filters = [
-        SearchRecord.account_id == account.id,
+        SearchRecord.account_id == account_id,
     ]
     if query:
         tsquery = text_to_tsquery(query)
         query_filters.append(SearchRecord.query_tsvector.op("@@")(tsquery))
 
-    if topics:
+    if topic_ids:
+        query_filters.append(SearchRecord.topics.any(Topic.id.in_(list(topic_ids))))
+    if client_id:
         query_filters.append(
-            SearchRecord.topics.any(Topic.id.in_([t.id for t in topics]))
-        )
-    if client:
-        query_filters.append(
-            SearchRecord.client_id == client.id,
+            SearchRecord.client_id == client_id,
         )
 
     if timestamp_gte:
@@ -795,9 +821,9 @@ async def delete_account_search_history(
             deleted_by_id=deleted_by_id,
             deleted_at=timezone.now(),
         )
-        .returning(SearchRecord.id)
+        .returning(sa.func.count(SearchRecord.id))
     )
-    return len(result.scalars().all())
+    return result.scalar_one()
 
 
 ###### SEARCH METRICS ######
@@ -805,7 +831,7 @@ async def delete_account_search_history(
 
 async def get_term_count(
     session: AsyncSession,
-    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
+    query_filters: typing.Iterable[sa.ColumnExpressionArgument[bool]],
 ) -> int:
     """
     Return the number of terms that match the given filters.
@@ -824,7 +850,7 @@ async def get_term_count(
 
 async def get_search_count(
     session: AsyncSession,
-    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
+    query_filters: typing.Iterable[sa.ColumnExpressionArgument[bool]],
 ) -> int:
     """
     Return the number of searches that match the given filters.
@@ -841,7 +867,7 @@ async def get_search_count(
 
 async def get_most_searched_queries(
     session: AsyncSession,
-    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
+    query_filters: typing.Iterable[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -872,7 +898,7 @@ async def get_most_searched_queries(
 
 async def get_most_searched_topics(
     session: AsyncSession,
-    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
+    query_filters: typing.Iterable[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -912,7 +938,7 @@ async def get_most_searched_topics(
 
 async def get_most_searched_words(
     session: AsyncSession,
-    query_filters: typing.List[sa.ColumnExpressionArgument[bool]],
+    query_filters: typing.Iterable[sa.ColumnExpressionArgument[bool]],
     limit: int = 5,
 ):
     """
@@ -1005,8 +1031,9 @@ async def get_terms_sources(
 
 async def generate_account_search_metrics(
     session: AsyncSession,
-    account: Account,
-    client: typing.Optional[APIClient] = None,
+    account_uid: str,
+    account_id: uuid.UUID,
+    client_id: typing.Optional[int] = None,
     timestamp_gte: typing.Optional[datetime.datetime] = None,
     timestamp_lte: typing.Optional[datetime.datetime] = None,
 ) -> AccountSearchMetricsSchema:
@@ -1014,15 +1041,16 @@ async def generate_account_search_metrics(
     Generate search metrics for an account over a period of time.
 
     :param session: The database session to use
-    :param account: The account to generate metrics for
-    :param client: Only consider search records made by the given API client
+    :param account_uid: The UID  of the account to generate metrics for
+    :param account_id: The ID of the account to generate metrics for
+    :param client_id: Only consider search records made by the given API client
     :param timestamp_gte: Only include search records that were created after this timestamp
     :param timestamp_lte: Only include search records that were created before this timestamp
     :return: An instance of AccountSearchMetricsSchema with the generated metrics
     """
     timestamp_lte = timestamp_lte or timezone.now()
     account_search_metrics = AccountSearchMetricsSchema(
-        account_id=account.uid,
+        account_id=account_uid,
         period_start=timestamp_gte,
         period_end=timestamp_lte,
     )
@@ -1030,9 +1058,9 @@ async def generate_account_search_metrics(
     if timestamp_gte:
         date_filters.append(SearchRecord.timestamp >= timestamp_gte)
 
-    query_filters = [SearchRecord.account_id == account.id, *date_filters]
-    if client:
-        query_filters.append(SearchRecord.client_id == client.id)
+    query_filters = [SearchRecord.account_id == account_id, *date_filters]
+    if client_id:
+        query_filters.append(SearchRecord.client_id == client_id)
 
     # NOTE: Currently, deleted search records still contribute to the account search metrics.
     # To exclude deleted search records, add `~SearchRecord.is_deleted` to the query_filters

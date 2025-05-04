@@ -275,13 +275,15 @@ async def bulk_delete_clients(
             "account_id": user.id,
             "client_type": ClientType.USER,
         }
-    api_clients = await crud.bulk_delete_api_clients_by_uid(session, **filters)
-    if not api_clients:
+    deleted_clients_count = await crud.bulk_delete_api_clients_by_uid(
+        session, **filters
+    )
+    if not deleted_clients_count:
         return response.notfound("Clients matching the given query do not exist")
 
     await session.commit()
     return response.success(
-        f"{len(api_clients)} API clients deleted successfully!",
+        f"{deleted_clients_count} API clients deleted successfully!",
     )
 
 
@@ -305,7 +307,7 @@ async def delete_client(
     user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
 ):
-    filters = {"uid": client_uid}
+    filters = {"uid": client_uid, "deleted_by_id": user.id}
     if not user.is_admin:
         filters = {
             **filters,
@@ -313,12 +315,7 @@ async def delete_client(
             "client_type": ClientType.USER,
         }
 
-    async with capture.capture(
-        OperationalError,
-        code=409,
-        content="Can not delete client due to conflict",
-    ):
-        deleted_client = await crud.delete_api_client(session, **filters)
+    deleted_client = await crud.delete_api_client(session, **filters)
     if not deleted_client:
         return response.notfound("Client matching the given query does not exist")
 

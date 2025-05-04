@@ -3,7 +3,6 @@ import fastapi
 import typing
 from typing_extensions import Doc
 from fastapi_cache.decorator import cache
-from sqlalchemy.exc import OperationalError
 
 from helpers.fastapi.dependencies.connections import AsyncDBSession, User
 from helpers.fastapi.response import shortcuts as response
@@ -121,12 +120,16 @@ async def search_terms(
     else:
         query_string = None
 
+    account_id = account.id if account else None
+    client_id = client.id if client else None
+    source_id = known_source.id if known_source else None
+    topic_ids = [topic.id for topic in topics_list] if topics_list else None
     async with crud.record_search(
         session,
         query=query_string,
+        account_id=account_id,
+        client_id=client_id,
         topics=topics_list,
-        account=account,
-        client=client,
         metadata=metadata,
     ):
         if "verified" not in params:
@@ -135,9 +138,8 @@ async def search_terms(
         result = await crud.search_terms(
             session,
             query=query_string,
-            topics=topics_list,
-            source=known_source,
-            **params,
+            topic_ids=topic_ids,
+            source_id=source_id,
         )
         response_data = [schemas.TermSchema.model_validate(term) for term in result]
 
@@ -192,7 +194,7 @@ async def create_term(
             if not created and await crud.check_term_exists_for_source(
                 session,
                 term_name=term_name,
-                term_source=source,
+                source_id=source.id,
             ):
                 return response.bad_request(
                     f"A term with the name {term_name!r} already exists for the source {source.name!r}"
@@ -227,10 +229,16 @@ async def create_term(
         event(
             "term_retrieve",
             target="terms",
-            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Retrieve a term from the glossary",
         ),
-        permissions_required("terms::*::view"),
+        permissions_required(
+            "terms::*::view",
+        ),
         authenticate_connection,
     ],
     description="Retrieve a glossary term by its UID",
@@ -250,7 +258,11 @@ async def retrieve_term(
     if not term.relatives:
         await crud.update_related_terms(session, term=term)
 
-    await crud.create_term_view(session, term=term, viewed_by=user)
+    await crud.create_term_view(
+        session,
+        term_id=term.id,
+        viewed_by_id=user.id if user else None,
+    )
     await session.commit()
     response_data = schemas.TermSchema.model_validate(term)
     return response.success(data=response_data)
@@ -262,11 +274,17 @@ async def retrieve_term(
         event(
             "term_update",
             target="terms",
-            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Update a term in the glossary",
         ),
         internal_api_clients_only,
-        permissions_required("terms::*::update"),
+        permissions_required(
+            "terms::*::update",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -302,7 +320,7 @@ async def update_term(
         if term.source and (name == term.source.name or uid == term.source.uid):
             pass
         else:
-            with capture.capture(ValueError, code=400):
+            async with capture.capture(ValueError, code=400):
                 source, created = await crud.get_or_create_term_source(
                     session, **source_data
                 )
@@ -310,7 +328,7 @@ async def update_term(
                 if not created and await crud.check_term_exists_for_source(
                     session,
                     term_name=term_name,
-                    term_source=source,
+                    source_id=source.id,
                 ):
                     return response.bad_request(
                         f"A term with the name {term_name!r} already exists for the source {source.name!r}"
@@ -336,11 +354,17 @@ async def update_term(
         event(
             "term_delete",
             target="terms",
-            target_uid=fastapi.Path(alias="term_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Delete a term from the glossary",
         ),
         internal_api_clients_only,
-        permissions_required("terms::*::delete"),
+        permissions_required(
+            "terms::*::delete",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -353,16 +377,11 @@ async def delete_term(
     term_uid: TermUID,
     user: ActiveUser[Account],
 ):
-    async with capture.capture(
-        OperationalError,
-        code=409,
-        content="A conflict occurred while attempting to delete term",
-    ):
-        deleted_term = await crud.delete_term_by_uid(
-            session,
-            uid=term_uid,
-            deleted_by_id=user.id,
-        )
+    deleted_term = await crud.delete_term_by_uid(
+        session,
+        uid=term_uid,
+        deleted_by_id=user.id,
+    )
     if not deleted_term:
         return response.notfound("Term matching the given query does not exist")
 
@@ -379,7 +398,9 @@ async def delete_term(
             target="topics",
             description="Retrieve a list of available topics",
         ),
-        permissions_required("topics::*::list"),
+        permissions_required(
+            "topics::*::list",
+        ),
     ],
     response_model=PaginatedResponse[schemas.TopicSchema],  # type: ignore
     status_code=200,
@@ -391,7 +412,11 @@ async def retrieve_topics(
     limit: typing.Annotated[Limit, Le(50)] = 20,
     offset: Offset = 0,
 ):
-    topics = await crud.retrieve_topics(session, limit=limit, offset=offset)
+    topics = await crud.retrieve_topics(
+        session,
+        limit=limit,
+        offset=offset,
+    )
     response_data = [schemas.TopicSchema.model_validate(topic) for topic in topics]
     return response.success(
         data=paginated_data(
@@ -413,7 +438,9 @@ async def retrieve_topics(
             description="Create a new topic",
         ),
         internal_api_clients_only,
-        permissions_required("topics::*::create"),
+        permissions_required(
+            "topics::*::create",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -439,10 +466,16 @@ async def create_topic(
         event(
             "topic_retrieve",
             target="topics",
-            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="topic_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Retrieve a topic by its UID",
         ),
-        permissions_required("topics::*::view"),
+        permissions_required(
+            "topics::*::view",
+        ),
     ],
     response_model=response.DataSchema[schemas.TopicSchema],
     status_code=200,
@@ -462,11 +495,17 @@ async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
         event(
             "topic_update",
             target="topics",
-            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="topic_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Update a topic by its UID",
         ),
         internal_api_clients_only,
-        permissions_required("topics::*::update"),
+        permissions_required(
+            "topics::*::update",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -501,11 +540,17 @@ async def update_topic(
         event(
             "topic_delete",
             target="topics",
-            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="topic_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Delete a topic by its UID",
         ),
         internal_api_clients_only,
-        permissions_required("topics::*::delete"),
+        permissions_required(
+            "topics::*::delete",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -518,16 +563,11 @@ async def delete_topic(
     topic_uid: TopicUID,
     user: ActiveUser[Account],
 ):
-    async with capture.capture(
-        OperationalError,
-        code=409,
-        content="A conflict occurred while attempting to delete topic",
-    ):
-        deleted_topic = await crud.delete_topic_by_uid(
-            session,
-            uid=topic_uid,
-            deleted_by_id=user.id,
-        )
+    deleted_topic = await crud.delete_topic_by_uid(
+        session,
+        uid=topic_uid,
+        deleted_by_id=user.id,
+    )
     if not deleted_topic:
         return response.notfound("Topic matching the given query does not exist")
 
@@ -542,7 +582,11 @@ async def delete_topic(
         event(
             "topic_terms_list",
             target="terms",
-            target_uid=fastapi.Path(alias="topic_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="topic_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Retrieve a list of available terms associated with this topic",
         ),
         permissions_required(
@@ -587,7 +631,7 @@ async def retrieve_topic_terms(
 
     terms = await crud.retrieve_topic_terms(
         session,
-        topic=topic,
+        topic_id=topic.id,
         **params,
     )
     response_data = [schemas.TermSchema.model_validate(term) for term in terms]
@@ -670,10 +714,16 @@ async def create_term_source(
         event(
             "term_source_retrieve",
             target="term_sources",
-            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_source_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Retrieve a term source by its UID",
         ),
-        permissions_required("term_sources::*::view"),
+        permissions_required(
+            "term_sources::*::view",
+        ),
     ],
     response_model=response.DataSchema[schemas.TermSourceSchema],
     status_code=200,
@@ -686,7 +736,6 @@ async def retrieve_term_source(
     term_source = await crud.retrieve_term_source_by_uid(session, uid=term_source_uid)
     if not term_source:
         return response.notfound("Term source matching the given query does not exist")
-
     return response.success(data=schemas.TermSourceSchema.model_validate(term_source))
 
 
@@ -697,7 +746,11 @@ async def retrieve_term_source(
         event(
             "term_source_terms_list",
             target="terms",
-            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_source_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Retrieve a list of available terms associated with this source",
         ),
         permissions_required(
@@ -737,11 +790,11 @@ async def retrieve_source_terms(
     )
     if topics:
         topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
-        params["topics"] = topics_list
+        params["topic_ids"] = [topic.id for topic in topics_list]
 
-    terms = await crud.retrieve_term_source_terms(
+    terms = await crud.retrieve_source_terms(
         session,
-        term_source=term_source,
+        source_id=term_source.id,
         **params,
     )
     response_data = [schemas.TermSchema.model_validate(term) for term in terms]
@@ -761,7 +814,11 @@ async def retrieve_source_terms(
         event(
             "term_source_update",
             target="term_sources",
-            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_source_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Update a term source by its UID",
         ),
         internal_api_clients_only,
@@ -800,11 +857,17 @@ async def update_term_source(
         event(
             "term_source_delete",
             target="term_sources",
-            target_uid=fastapi.Path(alias="term_source_uid", alias_priority=1),
+            target_uid=fastapi.Path(
+                alias="term_source_uid",
+                alias_priority=1,
+                include_in_schema=False,
+            ),
             description="Delete a term source by its UID",
         ),
         internal_api_clients_only,
-        permissions_required("term_sources::*::delete"),
+        permissions_required(
+            "term_sources::*::delete",
+        ),
         authentication_required,
         staff_user_only,
     ],
@@ -815,16 +878,11 @@ async def update_term_source(
 async def delete_term_source(
     session: AsyncDBSession,
     term_source_uid: TermSourceUID,
+    user: ActiveUser[Account],
 ):
-    async with capture.capture(
-        OperationalError,
-        code=409,
-        content="A conflict occurred while attempting to delete term source",
-    ):
-        deleted_term_source = await crud.delete_term_source_by_uid(
-            session,
-            uid=term_source_uid,
-        )
+    deleted_term_source = await crud.delete_term_source_by_uid(
+        session, uid=term_source_uid, deleted_by_id=user.id
+    )
     if not deleted_term_source:
         return response.notfound("Term source matching the given query does not exist")
 
@@ -840,7 +898,9 @@ async def delete_term_source(
             target="search_records",
             description="Retrieve search history",
         ),
-        permissions_required("search_records::*::list"),
+        permissions_required(
+            "search_records::*::list",
+        ),
         authentication_required,
     ],
     description="Retrieve the search history of the authenticated user/account",
@@ -870,7 +930,6 @@ async def retrieve_account_search_history(
 ):
     params = clean_params(
         query=query,
-        topics=topics,
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
         limit=limit,
@@ -878,11 +937,11 @@ async def retrieve_account_search_history(
     )
     if topics:
         topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
-        params["topics"] = topics_list
+        params["topic_ids"] = [topic.id for topic in topics_list]
 
     search_history = await crud.retrieve_account_search_history(
         session,
-        account=user,
+        account_id=user.id,
         **params,
     )
 
@@ -908,7 +967,9 @@ async def retrieve_account_search_history(
             target="search_records",
             description="Delete search history",
         ),
-        permissions_required("search_records::*::delete"),
+        permissions_required(
+            "search_records::*::delete",
+        ),
         authentication_required,
     ],
     description="Delete the search history of the authenticated user/account",
@@ -936,17 +997,16 @@ async def delete_account_search_history(
 ):
     params = clean_params(
         query=query,
-        topics=topics,
         timestamp_gte=timestamp_gte,
         timestamp_lte=timestamp_lte,
     )
     if topics:
         topics_list = await crud.retrieve_topics_by_name_or_uid(session, topics)  # type: ignore
-        params["topics"] = topics_list
+        params["topic_ids"] = [topic.id for topic in topics_list]
 
     deleted_records_count = await crud.delete_account_search_history(
         session,
-        account=user,
+        account_id=user.id,
         **params,
         deleted_by_id=user.id,
     )
@@ -965,7 +1025,9 @@ async def delete_account_search_history(
             target="search_records",
             description="Retrieve account search metrics",
         ),
-        permissions_required("search_records::*::list"),
+        permissions_required(
+            "search_records::*::list",
+        ),
         authentication_required,
     ],
     description="Retrieve search metrics of the authenticated user/account",
@@ -992,8 +1054,9 @@ async def account_search_metrics(
     )
     search_metrics = await crud.generate_account_search_metrics(
         session,
-        account=account,
-        # client=client,
+        account_uid=account.uid,
+        account_id=account.id,
+        # client_id=client.id,
         **params,
     )
     return response.success(data=search_metrics)

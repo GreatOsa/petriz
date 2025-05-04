@@ -15,12 +15,12 @@ from apps.quizzes.models import (
     QuestionToQuizAssociation,
 )
 from apps.search.models import Topic, Term
-from helpers.fastapi.sqlalchemy.utils import text_to_tsquery
+from helpers.fastapi.sqlalchemy.utils import text_to_tsquery, build_conditions
 from helpers.fastapi.utils import timezone
 
 
 def sort_id_uids(
-    ids: typing.Optional[typing.List[typing.Union[int, str]]],
+    ids: typing.Optional[typing.Iterable[typing.Union[int, str]]],
 ) -> typing.Tuple[typing.List[int], typing.List[str]]:
     """
     Sort integers IDs and string UIDs into separate lists.
@@ -55,7 +55,10 @@ async def retrieve_question_by_uid(
     """
     query = (
         sa.select(Question)
-        .where(Question.uid == uid, ~Question.is_deleted)
+        .where(
+            Question.uid == uid,
+            ~Question.is_deleted,
+        )
         .options(
             joinedload(Question.created_by.and_(~Account.is_deleted)),
             joinedload(Question.deleted_by.and_(~Account.is_deleted)),
@@ -157,10 +160,7 @@ async def check_quiz_has_attempts(
     return result.scalars().first() is not None
 
 
-async def copy_quiz(
-    quiz: Quiz,
-    **updated_attrs,
-) -> Quiz:
+async def copy_quiz(quiz: Quiz, **update_fields) -> Quiz:
     new_quiz = Quiz(
         **{
             "uid": quiz.uid,
@@ -174,7 +174,7 @@ async def copy_quiz(
             "is_public": quiz.is_public,
             "is_deleted": quiz.is_deleted,
             "extradata": quiz.extradata,
-            **updated_attrs,
+            **update_fields,
         }
     )
     return new_quiz
@@ -185,7 +185,7 @@ async def delete_quiz_by_uid(
     uid: str,
     deleted_by_id: typing.Optional[uuid.UUID] = None,
     exclude_versions: typing.Optional[typing.Sequence[int]] = None,
-) -> bool:
+) -> typing.List[Quiz]:
     """
     Soft delete all versions of a quiz by its UID.
 
@@ -193,7 +193,7 @@ async def delete_quiz_by_uid(
     :param uid: The UID of the quiz to delete.
     :param deleted_by_id: The ID of the account performing the deletion.
     :param exclude_versions: Versions of the quiz to not delete.
-    :return: True if the quiz was deleted, otherwise False.
+    :return: The deleted Quiz objects if found, otherwise an empty list.
     """
     query = (
         sa.update(Quiz)
@@ -206,8 +206,8 @@ async def delete_quiz_by_uid(
     )
     if exclude_versions:
         query = query.where(~Quiz.version.in_(exclude_versions))
-    result = await session.execute(query.returning(sa.func.count(Quiz.id)))
-    return result.scalar_one() > 0
+    result = await session.execute(query.returning(Quiz))
+    return list(result.scalars().all())
 
 
 async def create_question(session: AsyncSession, **create_kwargs) -> Question:
@@ -246,10 +246,7 @@ async def check_question_has_attempts(
     return result.scalars().first() is not None
 
 
-async def copy_question(
-    question: Question,
-    **updated_attrs,
-) -> Question:
+async def copy_question(question: Question, **update_fields) -> Question:
     return Question(
         **{
             "uid": question.uid,
@@ -261,7 +258,7 @@ async def copy_question(
             "search_tsvector": question.search_tsvector,
             "related_topics": question.related_topics,
             "related_terms": question.related_terms,
-            **updated_attrs,
+            **update_fields,
         }
     )
 
@@ -287,7 +284,7 @@ async def delete_question_by_uid(
     uid: str,
     deleted_by_id: typing.Optional[uuid.UUID] = None,
     exclude_versions: typing.Optional[typing.Sequence[int]] = None,
-) -> bool:
+) -> typing.List[Question]:
     """
     Soft delete all versions of a question by its UID.
 
@@ -295,11 +292,14 @@ async def delete_question_by_uid(
     :param uid: The UID of the question to delete.
     :param deleted_by_id: The ID of the account performing the deletion.
     :param exclude_versions: Versions of the question to not delete.
-    :return: True if the question was deleted, otherwise False.
+    :return: The deleted Question objects if found, otherwise an empty list.
     """
     query = (
         sa.update(Question)
-        .where(Question.uid == uid, ~Question.is_deleted)
+        .where(
+            Question.uid == uid,
+            ~Question.is_deleted,
+        )
         .values(
             is_deleted=True,
             deleted_by_id=deleted_by_id,
@@ -308,8 +308,8 @@ async def delete_question_by_uid(
     )
     if exclude_versions:
         query = query.where(~Question.version.in_(exclude_versions))
-    result = await session.execute(query.returning(sa.func.count(Question.id)))
-    return result.scalar_one() > 0
+    result = await session.execute(query.returning(Question))
+    return list(result.scalars().all())
 
 
 async def search_quizzes(
@@ -354,11 +354,11 @@ async def search_quizzes(
     :param filters: Additional filters to apply to the query.
     :return: A list of quizzes matching the search criteria.
     """
-    query_filters = [~Quiz.is_deleted]
+    query_conditions = [~Quiz.is_deleted]
 
     if query:
         tsquery = text_to_tsquery(query)
-        query_filters.append(Quiz.search_tsvector.op("@@")(tsquery))
+        query_conditions.append(Quiz.search_tsvector.op("@@")(tsquery))
         # Update ordering to rank by relevance
         ordering = (
             sa.desc(func.ts_rank_cd(Quiz.search_tsvector, tsquery)),
@@ -366,45 +366,46 @@ async def search_quizzes(
         )
 
     if created_by_id:
-        query_filters.append(Quiz.created_by_id == created_by_id)
+        query_conditions.append(Quiz.created_by_id == created_by_id)
 
     if difficulty:
-        query_filters.append(Quiz.difficulty.in_(difficulty))
+        query_conditions.append(Quiz.difficulty.in_(difficulty))
 
     if title:
-        query_filters.append(Quiz.title.ilike(f"%{title}%"))
+        query_conditions.append(Quiz.title.ilike(f"%{title}%"))
 
     if duration_gte is not None:
-        query_filters.append(Quiz.duration >= duration_gte)
+        query_conditions.append(Quiz.duration >= duration_gte)
 
     if duration_lte is not None:
-        query_filters.append(Quiz.duration <= duration_lte)
+        query_conditions.append(Quiz.duration <= duration_lte)
 
     if created_at_gte:
-        query_filters.append(Quiz.created_at >= created_at_gte)
+        query_conditions.append(Quiz.created_at >= created_at_gte)
 
     if created_at_lte:
-        query_filters.append(Quiz.created_at <= created_at_lte)
+        query_conditions.append(Quiz.created_at <= created_at_lte)
 
     if updated_at_gte:
-        query_filters.append(Quiz.updated_at >= updated_at_gte)
+        query_conditions.append(Quiz.updated_at >= updated_at_gte)
 
     if updated_at_lte:
-        query_filters.append(Quiz.updated_at <= updated_at_lte)
+        query_conditions.append(Quiz.updated_at <= updated_at_lte)
 
     if exclude:
         excluded_ids, excluded_uids = sort_id_uids(exclude)
         if not excluded_ids and not excluded_uids:
             raise ValueError("At least one ID or UID must be provided for exclusion.")
-        query_filters.append(~Quiz.uid.in_(excluded_uids) & ~Quiz.id.in_(excluded_ids))
+        query_conditions.append(
+            ~Quiz.uid.in_(excluded_uids) & ~Quiz.id.in_(excluded_ids)
+        )
 
     if version is not None and not filters.get("is_latest", False):
-        query_filters.append(Quiz.version == version)
+        query_conditions.append(Quiz.version == version)
 
-    filter_set = {getattr(Quiz, k) == v for k, v in filters.items()}
     result = await session.execute(
         sa.select(Quiz)
-        .where(*query_filters, *filter_set)
+        .where(*query_conditions, *build_conditions(filters, Quiz))
         .limit(limit)
         .offset(offset)
         .options(
@@ -420,17 +421,17 @@ async def search_questions(
     session: AsyncSession,
     query: typing.Optional[str] = None,
     *,
-    difficulty: typing.Optional[typing.List[str]] = None,
-    related_topics: typing.Optional[typing.List[typing.Union[int, str]]] = None,
-    related_terms: typing.Optional[typing.List[typing.Union[int, str]]] = None,
-    in_quizzes: typing.Optional[typing.List[typing.Union[int, str]]] = None,
+    difficulty: typing.Optional[typing.Iterable[str]] = None,
+    related_topics: typing.Optional[typing.Iterable[typing.Union[int, str]]] = None,
+    related_terms: typing.Optional[typing.Iterable[typing.Union[int, str]]] = None,
+    in_quizzes: typing.Optional[typing.Iterable[typing.Union[int, str]]] = None,
     created_at_gte: typing.Optional[datetime.datetime] = None,
     created_at_lte: typing.Optional[datetime.datetime] = None,
     updated_at_gte: typing.Optional[datetime.datetime] = None,
     updated_at_lte: typing.Optional[datetime.datetime] = None,
     limit: int = 100,
     offset: int = 0,
-    exclude: typing.Optional[typing.List[typing.Union[str, int]]] = None,
+    exclude: typing.Optional[typing.Iterable[typing.Union[str, int]]] = None,
     ordering: typing.Sequence[sa.UnaryExpression] = Question.DEFAULT_ORDERING,
     version: typing.Optional[int] = None,
     **filters,
@@ -456,11 +457,11 @@ async def search_questions(
     :param version: The version of the question to filter by.
     :return: A list of questions matching the search criteria.
     """
-    query_filters = [~Question.is_deleted]
+    query_conditions = [~Question.is_deleted]
 
     if query:
         tsquery = text_to_tsquery(query)
-        query_filters.append(Question.search_tsvector.op("@@")(tsquery))
+        query_conditions.append(Question.search_tsvector.op("@@")(tsquery))
         # Update ordering to rank by relevance
         ordering = (
             sa.desc(func.ts_rank_cd(Question.search_tsvector, tsquery)),
@@ -468,19 +469,19 @@ async def search_questions(
         )
 
     if difficulty:
-        query_filters.append(Question.difficulty.in_(difficulty))
+        query_conditions.append(Question.difficulty.in_(difficulty))
 
     if created_at_gte:
-        query_filters.append(Question.created_at >= created_at_gte)
+        query_conditions.append(Question.created_at >= created_at_gte)
 
     if created_at_lte:
-        query_filters.append(Question.created_at <= created_at_lte)
+        query_conditions.append(Question.created_at <= created_at_lte)
 
     if updated_at_gte:
-        query_filters.append(Question.updated_at >= updated_at_gte)
+        query_conditions.append(Question.updated_at >= updated_at_gte)
 
     if updated_at_lte:
-        query_filters.append(Question.updated_at <= updated_at_lte)
+        query_conditions.append(Question.updated_at <= updated_at_lte)
 
     if related_topics:
         related_topics_ids, related_topics_uids = sort_id_uids(related_topics)
@@ -488,7 +489,7 @@ async def search_questions(
             raise ValueError(
                 "At least one ID or UID must be provided for related topics."
             )
-        query_filters.append(
+        query_conditions.append(
             Question.related_topics.any(
                 (Topic.id.in_(related_topics_ids) | Topic.uid.in_(related_topics_uids))
                 & ~Topic.is_deleted,
@@ -501,7 +502,7 @@ async def search_questions(
             raise ValueError(
                 "At least one ID or UID must be provided for related terms."
             )
-        query_filters.append(
+        query_conditions.append(
             Question.related_terms.any(
                 (Term.id.in_(related_terms_ids) | Term.uid.in_(related_terms_uids))
                 & ~Term.is_deleted,
@@ -512,7 +513,7 @@ async def search_questions(
         quiz_ids, quiz_uids = sort_id_uids(in_quizzes)
         if not quiz_ids and not quiz_uids:
             raise ValueError("At least one ID or UID must be provided for inclusion.")
-        query_filters.append(
+        query_conditions.append(
             Question.quizzes.any(
                 (Quiz.id.in_(quiz_ids) | Quiz.uid.in_(quiz_uids)) & ~Quiz.is_deleted
             )
@@ -522,17 +523,16 @@ async def search_questions(
         excluded_ids, excluded_uids = sort_id_uids(exclude)
         if not excluded_ids and not excluded_uids:
             raise ValueError("At least one ID or UID must be provided for exclusion.")
-        query_filters.append(
+        query_conditions.append(
             ~Question.uid.in_(excluded_uids) & ~Question.id.in_(excluded_ids)
         )
 
     if version is not None and not filters.get("is_latest", False):
-        query_filters.append(Question.version == version)
+        query_conditions.append(Question.version == version)
 
-    filter_set = {getattr(Question, k) == v for k, v in filters.items()}
     result = await session.execute(
         sa.select(Question)
-        .where(*query_filters, *filter_set)
+        .where(*query_conditions, *build_conditions(filters, Question))
         .limit(limit)
         .offset(offset)
         .order_by(*ordering)
@@ -607,11 +607,13 @@ async def retrieve_quiz_attempts(
     :param filters: Additional filters to apply to the query.
     :return: A list of QuizAttempt objects.
     """
-    filter_set = {getattr(QuizAttempt, k) == v for k, v in filters.items()}
     query = (
         sa.select(QuizAttempt)
         .join(QuizAttempt.quiz.and_(~Quiz.is_deleted))
-        .where(Quiz.uid == quiz_uid, *filter_set)
+        .where(
+            Quiz.uid == quiz_uid,
+            *build_conditions(filters, QuizAttempt),
+        )
         .limit(limit)
         .offset(offset)
         .order_by(*ordering)
@@ -639,8 +641,8 @@ async def retrieve_question_in_quiz(
     **filters,
 ) -> typing.Optional[Question]:
     """
-    Retrieve the specific version of a question (identified by the given UID), 
-    that is in/associated with a specific version of a quiz 
+    Retrieve the specific version of a question (identified by the given UID),
+    that is in/associated with a specific version of a quiz
     (identified by the given quiz ID).
 
     :param session: The database session.
@@ -649,7 +651,6 @@ async def retrieve_question_in_quiz(
     :param filters: Additional filters to apply to the query.
     :return: The Question object if found, otherwise None.
     """
-    filter_set = {getattr(Question, k) == v for k, v in filters.items()}
     result = await session.execute(
         sa.select(Question)
         .join(
@@ -660,7 +661,7 @@ async def retrieve_question_in_quiz(
             Question.uid == question_uid,
             QuestionToQuizAssociation.quiz_id == quiz_id,
             ~Question.is_deleted,
-            *filter_set,
+            *build_conditions(filters, Question),
         )
     )
     return result.scalars().first()
@@ -683,13 +684,10 @@ async def retrieve_quiz_attempt_question_answer(
     :param filters: Additional filters to apply to the query.
     :return: The QuizAttemptQuestionAnswer object if found, otherwise None.
     """
-    filter_set = {
-        getattr(QuizAttemptQuestionAnswer, k) == v for k, v in filters.items()
-    }
     query = sa.select(QuizAttemptQuestionAnswer).where(
         QuizAttemptQuestionAnswer.quiz_attempt_id == quiz_attempt_id,
         QuizAttemptQuestionAnswer.question_id == question_id,
-        *filter_set,
+        *build_conditions(filters, QuizAttemptQuestionAnswer),
     )
     if for_update:
         query = query.with_for_update(

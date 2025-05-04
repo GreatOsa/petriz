@@ -19,7 +19,7 @@ def query_parser_factory(
     description: str,
     process_value: typing.Optional[typing.Callable[[str], _T]] = None,
 ):
-    async def _query_parser(
+    async def query_parser(
         value: typing.Annotated[
             typing.Optional[str],
             fastapi.Query(
@@ -35,7 +35,7 @@ def query_parser_factory(
             return process_value(value)
         return value.strip() or ParamNotSet
 
-    return _query_parser
+    return query_parser
 
 
 Event: typing.TypeAlias = typing.Annotated[
@@ -153,7 +153,6 @@ audit_logs_ordering_query_parser = ordering_query_parser_factory(
 AuditLogOrdering: typing.TypeAlias = typing.Annotated[
     typing.Union[OrderingExpressions[AuditLogEntry], QueryParamNotSet],
     fastapi.Depends(audit_logs_ordering_query_parser),
-    Doc("Ordering expressions for audit log entries."),
 ]
 
 

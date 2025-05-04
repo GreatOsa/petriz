@@ -492,7 +492,7 @@ class QuizAttempt(mixins.TimestampMixin, models.Model):
             back_populates="quiz_attempt",
             doc="Answers given by the user in the quiz attempt.",
             order_by="QuizAttemptQuestionAnswer.created_at",
-            lazy="dynamic",
+            lazy="selectin",
         )
     )
 
@@ -540,7 +540,7 @@ class QuizAttempt(mixins.TimestampMixin, models.Model):
     def time_remaining(self) -> typing.Optional[float]:
         """Calculate the time remaining for the quiz attempt in seconds."""
         if self.duration:
-            if self.submitted:
+            if self.is_submitted:
                 return 0.00
 
             elapsed_time = (timezone.now() - self.created_at).total_seconds()
