@@ -17,13 +17,15 @@ from api.dependencies.authentication import authentication_required
 from apps.tokens import auth_tokens, totps
 from .models import Account
 
+
 router = fastapi.APIRouter(
     dependencies=[
         event(
             "accounts_access",
             description="Access accounts endpoints.",
         ),
-    ]
+    ],
+    tags=["accounts"],
 )
 
 
@@ -47,6 +49,7 @@ router = fastapi.APIRouter(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="registration_initiation",
 )
 async def registration_initiation(
     data: schemas.AccountRegistrationInitiationSchema,
@@ -100,6 +103,7 @@ async def registration_initiation(
         )
     ],
     status_code=200,
+    operation_id="registration_email_verification",
 )
 async def registration_email_verification(
     data: schemas.EmailOTPVerificationSchema,
@@ -160,6 +164,7 @@ AuthCompletionSchema = response.NewSchema(
     ],
     response_model=response.DataSchema[AuthCompletionSchema],
     status_code=201,
+    operation_id="registration_completion",
 )
 async def registration_completion(
     data: schemas.AccountRegistrationCompletionSchema,
@@ -235,6 +240,7 @@ async def registration_completion(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="authentication_initiation",
 )
 async def authentication_initiation(
     data: schemas.AccountAuthenticationInitiationSchema,
@@ -283,6 +289,7 @@ async def authentication_initiation(
     ],
     response_model=response.DataSchema[AuthCompletionSchema],
     status_code=200,
+    operation_id="authentication_completion",
 )
 async def authentication_completion(
     data: schemas.EmailOTPVerificationSchema,
@@ -349,6 +356,7 @@ async def authentication_completion(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="password_reset_initiation",
 )
 async def password_reset_initiation(
     data: schemas.PasswordResetInitiationSchema,
@@ -397,6 +405,7 @@ async def password_reset_initiation(
         )
     ],
     status_code=200,
+    operation_id="password_reset_verification",
 )
 async def password_reset_verification(
     data: schemas.EmailOTPVerificationSchema,
@@ -441,6 +450,7 @@ async def password_reset_verification(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="password_reset_completion",
 )
 async def password_reset_completion(
     data: schemas.PasswordResetCompletionSchema,
@@ -493,6 +503,7 @@ async def password_reset_completion(
     ],
     response_model=response.DataSchema[schemas.AccountSchema],
     status_code=200,
+    operation_id="retrieve_account",
 )
 async def retrieve_account(account: ActiveUser[Account]):
     return response.success(data=schemas.AccountSchema.model_validate(account))
@@ -513,6 +524,7 @@ async def retrieve_account(account: ActiveUser[Account]):
     ],
     response_model=response.DataSchema[schemas.AccountSchema],
     status_code=200,
+    operation_id="update_account",
 )
 async def update_account(
     data: schemas.AccountUpdateSchema,
@@ -545,8 +557,9 @@ async def update_account(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="initiate_account_email_change",
 )
-async def initiate_email_change(
+async def initiate_account_email_change(
     data: schemas.EmailChangeSchema,
     session: AsyncDBSession,
     request: fastapi.Request,
@@ -591,8 +604,9 @@ async def initiate_email_change(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="complete_account_email_change",
 )
-async def complete_email_change(
+async def complete_account_email_change(
     data: schemas.EmailOTPVerificationSchema,
     user: ActiveUser[Account],
     session: AsyncDBSession,
@@ -631,8 +645,9 @@ async def complete_email_change(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="change_account_password",
 )
-async def change_password(
+async def change_account_password(
     data: schemas.PasswordChangeSchema,
     user: ActiveUser[Account],
     session: AsyncDBSession,
@@ -662,8 +677,9 @@ async def change_password(
     description="Logout the authenticated account.",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="universal_logout",
 )
-async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Account]):
+async def universal_logout(session: AsyncDBSession, account: ActiveUser[Account]):
     await auth_tokens.delete_auth_tokens(session=session, account_id=account.id)
     await session.commit()
     return response.success("Account logged-out successfully!")
@@ -685,6 +701,7 @@ async def universal_logout_view(session: AsyncDBSession, account: ActiveUser[Acc
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_account",
 )
 async def delete_account(user: ActiveUser[Account], session: AsyncDBSession):
     deleted = await crud.delete_account(

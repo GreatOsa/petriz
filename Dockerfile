@@ -1,4 +1,4 @@
-FROM python:3.12.10-alpine
+FROM python:3.10.14-slim-bullseye
 
 EXPOSE 8000
 
@@ -13,6 +13,7 @@ WORKDIR /app
 
 COPY . /app/
 
-RUN uv sync --frozen --no-cache
+RUN uv sync --frozen
 
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+CMD ["uv", "run", "--python", "3.10", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
+ 

@@ -1,4 +1,3 @@
-from turtle import st
 import fastapi
 import typing
 from annotated_types import Le
@@ -64,6 +63,7 @@ router = fastapi.APIRouter(
     ],
     response_model=PaginatedResponse[schemas.AuditLogEntrySchema], # type: ignore
     status_code=200,
+    operation_id="retrieve_audit_logs",
 )
 @cache(namespace="audit_logs", expire=60)
 async def retrieve_audit_logs(

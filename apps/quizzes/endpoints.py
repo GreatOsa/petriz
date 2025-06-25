@@ -65,7 +65,8 @@ router = fastapi.APIRouter(
             "quizzes::*::*",
             "questions::*::*",
         ),
-    ]
+    ],
+    tags=["quizzes", "mcp_tools"],
 )
 
 
@@ -112,6 +113,7 @@ QuestionUID: typing.TypeAlias = typing.Annotated[
     description="Create a new quiz question",
     response_model=response.DataSchema[schemas.QuestionSchema],
     status_code=201,
+    operation_id="create_quiz_question",
 )
 async def create_quiz_question(
     data: schemas.QuestionCreateSchema,
@@ -156,6 +158,7 @@ async def create_quiz_question(
     description="Retrieve or search a list of quiz questions based on various filters.",
     response_model=PaginatedResponse[schemas.BaseQuestionSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_quiz_questions",
 )
 @cache(namespace="quiz_questions")
 async def retrieve_quiz_questions(
@@ -231,6 +234,7 @@ async def retrieve_quiz_questions(
     description="Retrieve a specific/latest version of a quiz question",
     response_model=response.DataSchema[schemas.QuestionSchema],
     status_code=200,
+    operation_id="retrieve_quiz_question",
 )
 @cache(namespace="quiz_questions")
 async def retrieve_quiz_question(
@@ -268,6 +272,7 @@ async def retrieve_quiz_question(
     description="Update the latest version of a quiz question",
     response_model=response.DataSchema[schemas.QuestionSchema],
     status_code=200,
+    operation_id="update_quiz_question",
 )
 async def update_quiz_question(
     question_uid: QuestionUID,
@@ -340,6 +345,7 @@ async def update_quiz_question(
     description="Delete all versions of a quiz question. Only, use when deleting is completely necessary.",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_quiz_question",
 )
 async def delete_quiz_question(
     question_uid: QuestionUID,
@@ -374,6 +380,7 @@ async def delete_quiz_question(
     description="Create a new quiz",
     response_model=response.DataSchema[schemas.QuizSchema],
     status_code=201,
+    operation_id="create_quiz",
 )
 async def create_quiz(
     data: schemas.QuizCreateSchema,
@@ -432,6 +439,7 @@ async def create_quiz(
     description="Retrieve a list of quizzes",
     response_model=PaginatedResponse[schemas.BaseQuizSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_quizzes",
 )
 # @cache(namespace="quizzes")
 async def retrieve_quizzes(
@@ -505,6 +513,7 @@ async def retrieve_quizzes(
     description="Retrieve a specific/latest version of a quiz",
     response_model=response.DataSchema[schemas.QuizSchema],
     status_code=200,
+    operation_id="retrieve_quiz",
 )
 @cache(namespace="quizzes")
 async def retrieve_quiz(
@@ -546,6 +555,7 @@ async def retrieve_quiz(
     description="Update the latest version of a quiz",
     response_model=response.DataSchema[schemas.QuizSchema],
     status_code=200,
+    operation_id="update_quiz",
 )
 async def update_quiz(
     quiz_uid: QuizUID,
@@ -613,6 +623,7 @@ async def update_quiz(
     description="Add new quiz questions to the latest version of a quiz by sending a list of the questions' data or UIDs.",
     response_model=response.DataSchema[schemas.QuizSchema],
     status_code=200,
+    operation_id="add_quiz_questions",
 )
 async def add_quiz_questions(
     quiz_uid: QuizUID,
@@ -699,6 +710,7 @@ async def add_quiz_questions(
     description="Remove quiz questions by their UIDs. Send a list of question UIDs to remove.",
     response_model=response.DataSchema[schemas.QuizSchema],
     status_code=200,
+    operation_id="remove_quiz_questions",
 )
 async def remove_quiz_questions(
     quiz_uid: QuizUID,
@@ -780,6 +792,7 @@ async def remove_quiz_questions(
     description="Delete a quiz",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_quiz",
 )
 async def delete_quiz(
     quiz_uid: QuizUID,
@@ -839,6 +852,7 @@ async def delete_quiz(
     description="Create a quiz attempt",
     response_model=response.DataSchema[schemas.QuizAttemptSchema],
     status_code=201,
+    operation_id="create_quiz_attempt",
 )
 async def create_quiz_attempt(
     quiz_uid: QuizUID,
@@ -890,6 +904,7 @@ async def create_quiz_attempt(
     description="Retrieve quiz attempts",
     response_model=PaginatedResponse[schemas.BaseQuizAttemptSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_quiz_attempts",
 )
 @cache(namespace="quiz_attempts", expire=10)
 async def retrieve_quiz_attempts(
@@ -918,7 +933,7 @@ async def retrieve_quiz_attempts(
 
     if quiz_version:
         filters["quiz_id"] = quiz.id
-    
+
     filters["quiz_uid"] = quiz.uid
     filters["attempted_by_id"] = user.id
     attempts = await crud.retrieve_quiz_attempts(session, **filters)
@@ -956,6 +971,7 @@ async def retrieve_quiz_attempts(
     description="Retrieve a quiz attempt",
     response_model=response.DataSchema[schemas.QuizAttemptSchema],
     status_code=200,
+    operation_id="retrieve_quiz_attempt",
 )
 @cache(namespace="quiz_attempts", expire=60)
 async def retrieve_quiz_attempt(
@@ -999,6 +1015,7 @@ async def retrieve_quiz_attempt(
     description="Create or update a quiz attempt question answer",
     response_model=response.DataSchema[schemas.QuizAttemptSchema],
     status_code=200,
+    operation_id="upsert_quiz_attempt_question_answer",
 )
 async def upsert_quiz_attempt_question_answer(
     quiz_uid: QuizUID,
@@ -1106,6 +1123,7 @@ async def upsert_quiz_attempt_question_answer(
     description="Submit a quiz attempt",
     response_model=response.DataSchema[schemas.QuizAttemptSchema],
     status_code=200,
+    operation_id="submit_quiz_attempt",
 )
 async def submit_quiz_attempt(
     quiz_uid: QuizUID,

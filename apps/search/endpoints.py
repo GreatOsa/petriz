@@ -39,7 +39,8 @@ router = fastapi.APIRouter(
             "search_access",
             description="Access search endpoints",
         ),
-    ]
+    ],
+    tags=["search", "mcp_tools"],
 )
 
 TopicUID: typing.TypeAlias = typing.Annotated[
@@ -68,6 +69,7 @@ TermSourceUID: typing.TypeAlias = typing.Annotated[
     description="Search terms in the glossary.",
     response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
     status_code=200,
+    operation_id="search_terms",
 )
 @cache(namespace="search")
 async def search_terms(
@@ -169,6 +171,7 @@ async def search_terms(
     description="Add a new term to the glossary ",
     response_model=response.DataSchema[schemas.TermSchema],
     status_code=201,
+    operation_id="create_term",
 )
 async def create_term(
     user: ActiveUser[Account],
@@ -244,6 +247,7 @@ async def create_term(
     description="Retrieve a glossary term by its UID",
     response_model=response.DataSchema[schemas.TermSchema],
     status_code=200,
+    operation_id="retrieve_term",
 )
 @cache(namespace="terms_retrieve")
 async def retrieve_term(
@@ -291,6 +295,7 @@ async def retrieve_term(
     description="Update a term by its UID",
     response_model=response.DataSchema[schemas.TermSchema],
     status_code=200,
+    operation_id="update_term",
 )
 async def update_term(
     session: AsyncDBSession,
@@ -371,6 +376,7 @@ async def update_term(
     description="Delete a term by its UID",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_term",
 )
 async def delete_term(
     session: AsyncDBSession,
@@ -404,6 +410,7 @@ async def delete_term(
     ],
     response_model=PaginatedResponse[schemas.TopicSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_topics",
 )
 @cache(namespace="topics_list")
 async def retrieve_topics(
@@ -446,6 +453,7 @@ async def retrieve_topics(
     ],
     response_model=response.DataSchema[schemas.TopicSchema],
     status_code=201,
+    operation_id="create_topic",
 )
 async def create_topic(
     session: AsyncDBSession,
@@ -479,6 +487,7 @@ async def create_topic(
     ],
     response_model=response.DataSchema[schemas.TopicSchema],
     status_code=200,
+    operation_id="retrieve_topic",
 )
 @cache(namespace="topics_retrieve")
 async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
@@ -512,6 +521,7 @@ async def retrieve_topic(session: AsyncDBSession, topic_uid: TopicUID):
     description="Update a topic by its UID",
     response_model=response.DataSchema[schemas.TopicSchema],
     status_code=200,
+    operation_id="update_topic",
 )
 async def update_topic(
     session: AsyncDBSession,
@@ -557,6 +567,7 @@ async def update_topic(
     description="Delete a topic by its UID",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_topic",
 )
 async def delete_topic(
     session: AsyncDBSession,
@@ -596,6 +607,7 @@ async def delete_topic(
     ],
     response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_topic_terms",
 )
 @cache(namespace="topic_terms_list")
 async def retrieve_topic_terms(
@@ -658,6 +670,7 @@ async def retrieve_topic_terms(
     ],
     response_model=PaginatedResponse[schemas.TermSourceSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_term_sources",
 )
 @cache(namespace="term_sources_list")
 async def retrieve_term_sources(
@@ -697,6 +710,7 @@ async def retrieve_term_sources(
     ],
     response_model=response.DataSchema[schemas.TermSourceSchema],
     status_code=201,
+    operation_id="create_term_source",
 )
 async def create_term_source(
     session: AsyncDBSession,
@@ -727,6 +741,7 @@ async def create_term_source(
     ],
     response_model=response.DataSchema[schemas.TermSourceSchema],
     status_code=200,
+    operation_id="retrieve_term_source",
 )
 @cache(namespace="term_source_retrieve")
 async def retrieve_term_source(
@@ -760,6 +775,7 @@ async def retrieve_term_source(
     ],
     response_model=PaginatedResponse[schemas.TermSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_source_terms",
 )
 @cache(namespace="term_source_terms_list")
 async def retrieve_source_terms(
@@ -829,6 +845,7 @@ async def retrieve_source_terms(
     description="Update a term source by its UID",
     response_model=response.DataSchema[schemas.TermSourceSchema],
     status_code=200,
+    operation_id="update_term_source",
 )
 async def update_term_source(
     session: AsyncDBSession,
@@ -874,6 +891,7 @@ async def update_term_source(
     description="Delete a term source by its UID",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_term_source",
 )
 async def delete_term_source(
     session: AsyncDBSession,
@@ -906,6 +924,7 @@ async def delete_term_source(
     description="Retrieve the search history of the authenticated user/account",
     response_model=PaginatedResponse[schemas.SearchRecordSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_account_search_history",
 )
 async def retrieve_account_search_history(
     request: fastapi.Request,
@@ -975,6 +994,7 @@ async def retrieve_account_search_history(
     description="Delete the search history of the authenticated user/account",
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_account_search_history",
 )
 async def delete_account_search_history(
     session: AsyncDBSession,
@@ -1033,6 +1053,7 @@ async def delete_account_search_history(
     description="Retrieve search metrics of the authenticated user/account",
     response_model=response.DataSchema[schemas.AccountSearchMetricsSchema],
     status_code=200,
+    operation_id="account_search_metrics",
 )
 async def account_search_metrics(
     # request: fastapi.Request,
@@ -1076,6 +1097,7 @@ async def account_search_metrics(
     ],
     response_model=response.DataSchema[schemas.GlobalSearchMetricsSchema],
     status_code=200,
+    operation_id="global_search_metrics",
 )
 async def global_search_metrics(
     session: AsyncDBSession,

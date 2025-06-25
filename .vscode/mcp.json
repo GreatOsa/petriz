@@ -1,0 +1,27 @@
+{
+    "servers": {
+        "petriz-mcp": {
+            "type": "stdio",
+            "command": "npx",
+            "args": [
+                "mcp-remote",
+                "http://localhost:8000/mcp",
+                "8080",
+                "--header",
+                "Authorization:${AUTH_HEADER}",
+                "--header",
+                "x-client-id:${CLIENT_ID}",
+                "--header",
+                "x-client-secret:${CLIENT_SECRET}",
+                "--header",
+                // Ensure that gzip encoding is not used. It may prevent the MCP client from connecting.
+                "Accept-Encoding:deflate, br",
+            ],
+            "env": {
+                "AUTH_HEADER": "AuthToken petriz_authtoken_1XeLVSZqmIO3WFND6KY4vEkw",
+                "CLIENT_ID": "slb_client_T6WmX7iwEt9xyq4B",
+                "CLIENT_SECRET": "slb_apisecret_H4kE2SIK5Jng8jxTaQqdZ6OB"
+            }
+        }
+    },
+}

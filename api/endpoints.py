@@ -36,7 +36,8 @@ v1_router = fastapi.APIRouter(
     dependencies=[
         *throttling.ANONYMOUS_CLIENT_THROTTLES,
     ],
-    tags=["api_specifics"],
+    tags=["health_check", "mcp_tools"],
+    operation_id="v1_health_check",
 )
 async def health_check():
     return response.success("Server is running 🚀🚨🌐")
@@ -54,12 +55,13 @@ DEFAULT_CLIENT_DEPENDENCIES = (
 v1_router.include_router(
     path("apps.accounts.endpoints"),
     prefix="/accounts",
+    tags=["accounts"],
     dependencies=DEFAULT_CLIENT_DEPENDENCIES,
 )
 v1_router.include_router(
     path("apps.clients.endpoints"),
     prefix="/clients",
-    tags=["clients"],
+    tags=["api_clients"],
     dependencies=DEFAULT_CLIENT_DEPENDENCIES,
 )
 v1_router.include_router(

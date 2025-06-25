@@ -37,7 +37,8 @@ router = fastapi.APIRouter(
         internal_api_clients_only,
         permissions_required("api_clients::*::*"),
         authentication_required,
-    ]
+    ],
+    tags=["api_clients"],
 )
 
 
@@ -54,8 +55,9 @@ router = fastapi.APIRouter(
     ],
     response_model=response.DataSchema[schemas.APIClientSchema],
     status_code=201,
+    operation_id="create_api_client",
 )
-async def create_client(
+async def create_api_client(
     data: schemas.APIClientCreateSchema,
     session: AsyncDBSession,
     user: ActiveUser[Account],
@@ -74,7 +76,7 @@ async def create_client(
             )
 
     async with session.begin_nested():
-        permissions = ALLOWED_PERMISSIONS_SETS.get(data.client_type.lower(), [])
+        permissions = ALLOWED_PERMISSIONS_SETS.get(data.client_type.value, set())
         if is_user_client:
             api_client = await crud.create_api_client(
                 session,
@@ -114,8 +116,9 @@ async def create_client(
     ],
     response_model=PaginatedResponse[schemas.APIClientSchema],  # type: ignore
     status_code=200,
+    operation_id="retrieve_api_clients",
 )
-async def retrieve_clients(
+async def retrieve_api_clients(
     request: fastapi.Request,
     session: AsyncDBSession,
     user: ActiveUser[Account],
@@ -168,8 +171,9 @@ async def retrieve_clients(
     ],
     response_model=response.DataSchema[schemas.APIClientSchema],
     status_code=200,
+    operation_id="retrieve_api_client",
 )
-async def retrieve_client(
+async def retrieve_api_client(
     session: AsyncDBSession,
     user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
@@ -203,8 +207,9 @@ async def retrieve_client(
     ],
     response_model=response.DataSchema[schemas.APIClientSchema],
     status_code=200,
+    operation_id="update_api_client",
 )
-async def update_client(
+async def update_api_client(
     data: schemas.APIClientUpdateSchema,
     session: AsyncDBSession,
     user: ActiveUser[Account],
@@ -259,8 +264,9 @@ async def update_client(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="bulk_delete_api_clients",
 )
-async def bulk_delete_clients(
+async def bulk_delete_api_clients(
     data: schemas.APIClientBulkDeleteSchema,
     session: AsyncDBSession,
     user: ActiveUser[Account],
@@ -301,8 +307,9 @@ async def bulk_delete_clients(
     ],
     response_model=response.DataSchema[None],
     status_code=200,
+    operation_id="delete_api_client",
 )
-async def delete_client(
+async def delete_api_client(
     session: AsyncDBSession,
     user: ActiveUser[Account],
     client_uid: str = fastapi.Path(description="API client UID"),
@@ -337,6 +344,7 @@ async def delete_client(
     ],
     response_model=response.DataSchema[schemas.APIKeySchema],
     status_code=200,
+    operation_id="refresh_client_api_secret",
 )
 async def refresh_client_api_secret(
     session: AsyncDBSession,
@@ -382,8 +390,9 @@ async def refresh_client_api_secret(
     ],
     response_model=response.DataSchema[typing.List[PermissionSchema]],
     status_code=200,
+    operation_id="update_api_client_permissions",
 )
-async def update_client_permissions(
+async def update_api_client_permissions(
     session: AsyncDBSession,
     user: ActiveUser[Account],
     data: typing.List[PermissionCreateSchema],

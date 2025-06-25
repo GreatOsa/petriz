@@ -1,6 +1,5 @@
 import typing
 import fastapi
-from typing_extensions import Doc
 
 from helpers.fastapi.requests.query import (
     QueryParamNotSet,

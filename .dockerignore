@@ -4,3 +4,5 @@
 **/*.pyd
 **/.venv
 **/.ruff_cache
+**/logs
+**/.vscode

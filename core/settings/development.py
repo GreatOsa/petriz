@@ -8,7 +8,7 @@ from helpers.generics.utils.db import get_database_url
 from helpers.fastapi import default_settings
 from helpers.fastapi.exceptions.capture import ExceptionCaptor
 
-load_dotenv(find_dotenv(".env.staging", raise_error_if_not_found=True))
+load_dotenv(find_dotenv(".env.development", raise_error_if_not_found=True))
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -109,7 +109,6 @@ TIMEZONE = "UTC"
 AUTH_USER_MODEL = "accounts.Account"
 
 MIDDLEWARE = [
-    # "starlette.middleware.httpsredirect.HTTPSRedirectMiddleware",
     "helpers.fastapi.middleware.core.RequestProcessTimeMiddleware",
     "helpers.fastapi.sqlalchemy.middleware.AsyncSessionMiddleware",
     (
@@ -123,6 +122,7 @@ MIDDLEWARE = [
                 r"^/api/redoc.*$",
                 r"^/api/v[1-9]{1,}/audits.+$",
                 r"^/api/v[1-9]{1,}/?$",
+                r"^/mcp.*$",
             ],
             "include_request": True,
             "include_response": True,
@@ -146,6 +146,16 @@ MIDDLEWARE = [
         },
     ),
     *default_settings.MIDDLEWARE,
+    (
+        "helpers.fastapi.response.middleware.FormatJSONResponseMiddleware",
+        {   
+            "format": True,
+            "formatter": "default",
+            "excluded_paths": [
+                r"^(?!/api/v).*$",
+            ],
+        },
+    ),
 ]
 
 EXCEPTION_HANDLERS = {
@@ -179,9 +189,6 @@ MAILING = {
     }
 }
 
-RESPONSE_FORMATTER = {
-    "exclude": [r"^(?!/api).*$"]  # Exclude all routes that do not start with /api
-}
 
 REDIS_URL = os.getenv("REDIS_URL")
 
@@ -197,8 +204,6 @@ LOG_CONNECTION_EVENTS = (
     os.getenv("LOG_CONNECTION_EVENTS", "False").lower() == "true"
 )  # Enable/disable request event logging
 AUDIT_LOGGING_BATCH_SIZE = 1000  # Number of entries to log in a single batch
-AUDIT_LOGGING_INTERVAL = 60 # Interval in seconds to log entries
-
-MAINTENANCE_MODE = {"status": False, "message": "default:techno"}
+AUDIT_LOGGING_INTERVAL = 60  # Interval in seconds to log entries
 
 ANYIO_MAX_WORKER_THREADS: int = 100

@@ -10,6 +10,7 @@ from core import application
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 app: fastapi.FastAPI = application.main()
+app = application.mount_mcp(app)
 
 
 if __name__ == "__main__":
