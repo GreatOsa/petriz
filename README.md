@@ -1,14 +1,14 @@
 # Petriz API Backend
 
-This repository contains the FastAPI backend for the Petriz project.
+FastAPI backend for the Petriz project.
 
 Visit the API documentation on [Postman](https://documenter.getpostman.com/view/21622102/2sAYdeNCL5)
 
-> The project structure may not follow conventional FastAPI project structures. This is because it uses pre-made utilities to speed-up and improve the development process, whilst adding some custom features.
-
-## Quick Setup Guide
+## Quick Setup using `uv`
 
 This project requires Python 3.10 or higher. To set up the project, follow these steps:
+
+To install `uv`, follow the instructions on the [uv documentation](https://docs.astral.sh/uv/getting-started/installation/)
 
 - Clone the repository
 - Change into the project directory
@@ -17,22 +17,10 @@ This project requires Python 3.10 or higher. To set up the project, follow these
     cd petriz
     ```
 
-- Create and activate a virtual environment
+- Synchronize the project dependencies
   
   ```bash
-    python -m venv venv && source venv/bin/activate
-    ```
-
-- Install `poetry` if you don't have it installed
-  
-  ```bash
-    pip install poetry
-    ```
-
-- Install the project dependencies
-  
-  ```bash
-    poetry install --no-dev
+    uv sync
     ```
 
 - Setup the environment variables
@@ -41,7 +29,7 @@ This project requires Python 3.10 or higher. To set up the project, follow these
     cp .env.example .env // Update the values in the .env file
     ```
 
-- Run the database migrations
+- Run database migrations
   
   ```bash
     alembic upgrade head
@@ -58,7 +46,7 @@ This project requires Python 3.10 or higher. To set up the project, follow these
 - Run the project
   
   ```bash
-    uvicorn main:app --reload
+    uv run uvicorn main:app --reload
     ```
 
 - The project should now be running on `http://localhost:8000`
@@ -68,11 +56,11 @@ This project requires Python 3.10 or higher. To set up the project, follow these
 - Check available commands with
   
   ```bash
-    python main.py --help
+    uv run main.py --help
     ```
 
 - To access all API endpoints, you need internal API client credentials. You can run the following command to create one
   
   ```bash
-    python main.py create_client --client_type internal
+    uv run main.py create_client --client_type internal
     ```
